@@ -603,7 +603,7 @@ class Comments extends ArrayObject
 			}
 			
 			// filter
-			$categories = Plugins::filter( 'comment_categories', $categories, $this );
+			$categories = Plugins::filter( 'comment_categories', $categories, $c );
 			$categories = array_unique( $categories );
 
 			// set the sort values
