@@ -117,7 +117,7 @@ class RewriteRule extends QueryRecord
 			foreach ( $keys as $key ) {
 				if ( !empty( $args[$key] ) ) {
 					$searches[] = '/{\$'.$key.'}/';
-					$replacements[] = str_replace( '%2F', '%252F', urlencode( $args[$key] ) );
+					$replacements[] = ($key == 'name') ? $args[$key] : str_replace( '%2F', '%252F', urlencode( $args[$key] ) );
 				}
 			}
 		}
