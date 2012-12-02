@@ -132,7 +132,6 @@ abstract class Pluggable
 				// make sure the method name is of the form
 				// action_foo or filter_foo of xmlrpc_foo or theme_foo
 				if ( preg_match( '#^(action|filter|xmlrpc|theme|rest)_#i', $hook ) ) {
-//var_dump($hook);
 					$priority = 8;
 					if(isset($priorities[$hook])) {
 						$priority = $priorities[$hook];
@@ -245,6 +244,7 @@ abstract class Pluggable
 	public function _help_plugin_config( $actions, $plugin_id )
 	{
 		if ( $plugin_id == $this->plugin_id() ) {
+			// @locale Displayed as an icon indicating there is help text available for a plugin.
 			$actions['_help'] = _t( '?' );
 		}
 		return $actions;
