@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari Themes class
  *
@@ -50,6 +52,7 @@ class Themes
 				$themedata['theme_dir'] = $theme_path;
 
 				$themedata['info'] = simplexml_load_file( $theme_path . '/theme.xml' );
+				$themedata['info']['filename'] = $theme_path . '/theme.xml';
 				if ( $themedata['info']->getName() != 'pluggable' || (string) $themedata['info']->attributes()->type != 'theme' ) {
 					$themedata['screenshot'] = Site::get_url( 'admin_theme' ) . "/images/screenshot_default.png";
 					$themedata['info']->description = '<span class="error">' . _t( 'This theme is a legacy theme that is not compatible with Habari ' ) . Version::get_habariversion() . '. <br><br>Please update your theme.</span>';
@@ -216,6 +219,7 @@ class Themes
 
 		$ok = Plugins::filter( 'activate_theme', $ok, $theme_name ); // Allow plugins to reject activation
 		if($ok) {
+			Themes::cancel_preview();
 			$old_active_theme = Themes::create();
 			Plugins::act_id( 'theme_deactivated', $old_active_theme->plugin_id(), $old_active_theme->name, $old_active_theme ); // For the theme itself to react to its deactivation
 			Plugins::act( 'theme_deactivated_any', $old_active_theme->name, $old_active_theme ); // For any plugin to react to its deactivation
@@ -282,9 +286,10 @@ class Themes
 	 *
 	 * If no theme option is set, a fatal error is thrown
 	 *
-	 * @param name            ( optional ) override the default theme lookup
-	 * @param template_engine ( optional ) specify a template engine
-	 * @param theme_dir       ( optional ) specify a theme directory
+	 * @param string $name ( optional ) override the default theme lookup
+	 * @param string $template_engine ( optional ) specify a template engine
+	 * @param string $theme_dir ( optional ) specify a theme directory
+	 * @return Theme An instance of the requested theme or the default theme
 	 **/
 	public static function create( $name = null, $template_engine = null, $theme_dir = null )
 	{
@@ -331,6 +336,8 @@ class Themes
 		// @todo: Potentially break themes by sending an array to the constructor instead of this QueryRecord
 		$themedata = new QueryRecord($themedata);
 
+		// Set the default fallback theme class, which a parent can override
+		$fallback_classname = '\\Habari\\Theme';
 
 		// Deal with parent themes
 		if(isset($themedata->parent)) {
@@ -344,6 +351,14 @@ class Themes
 
 			$themedata->parent_theme_dir = Utils::single_array($parent_data['theme_dir']);
 			$themedata->theme_dir = array_merge(Utils::single_array($themedata->theme_dir), $themedata->parent_theme_dir);
+
+			// Does the parent have a class? If so, set the fallback class name
+			if ( isset( $themedata->class ) ) {
+				$fallback_classname = $themedata->class;
+			}
+			else {
+				$fallback_classname = self::class_from_filename( $parent_data['theme_dir'] . $parent_themefile );
+			}
 		}
 		$primary_theme_dir = $themedata->theme_dir;
 		$primary_theme_dir = is_array($primary_theme_dir) ? reset($primary_theme_dir) : $primary_theme_dir;
@@ -362,7 +377,7 @@ class Themes
 
 		// the final fallback, for the admin "theme"
 		if ( $classname == '' ) {
-			$classname = 'Theme';
+			$classname = $fallback_classname;
 		}
 
 		$created_theme = new $classname( $themedata );
@@ -382,8 +397,9 @@ class Themes
 
 		$theme_classes = self::get_theme_classes();
 		foreach ( $theme_classes as $theme ) {
-			$class = new ReflectionClass( $theme );
+			$class = new \ReflectionClass( $theme );
 			$classfile = str_replace( '\\', '/', $class->getFileName() );
+			$file = str_replace( '\\', '/', $file );
 			if ( $classfile == $file ) {
 				return $theme;
 			}
@@ -417,7 +433,7 @@ class Themes
 		do {
 			$delta = count($theme_classes);
 			foreach($class_parents as $class => $parents) {
-				if(count(array_intersect($theme_classes + array('Theme'), $parents))>0) {
+				if(count(array_intersect($theme_classes + array('Habari\\Theme'), $parents))>0) {
 					$theme_classes[$class] = $class;
 				}
 			}

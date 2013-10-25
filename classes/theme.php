@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari Theme Class
  *
@@ -15,6 +17,7 @@ class Theme extends Pluggable
 {
 	public $name = null;
 	public $version = null;
+	/** @var TemplateEngine $template_engine */
 	public $template_engine = null;
 	public $theme_dir = null;
 	public $config_vars = array();
@@ -76,10 +79,15 @@ class Theme extends Pluggable
 		$this->version = $themedata->version;
 		$theme_dir = Utils::single_array($themedata->theme_dir);
 		// Set up the corresponding engine to handle the templating
-		$this->template_engine = new $themedata->template_engine();
+		$engine = $themedata->template_engine;
+		// @todo Big namespace Kludge. Prefixes the template engine with a namespace if not provided
+		if(strpos($engine, '\\') == false) {
+			$engine = 'Habari\\' . $engine;
+		}
+		$this->template_engine = new $engine();
 
 		$this->theme_dir = $theme_dir;
-		$this->template_engine->set_template_dir( $theme_dir );
+		$this->template_engine->queue_dirs( $theme_dir );
 		$this->plugin_id = $this->plugin_id();
 		$this->load();
 	}
@@ -94,7 +102,7 @@ class Theme extends Pluggable
 
 		$xml_file = end($this->theme_dir) . '/theme.xml';
 		if(!file_exists($xml_file)) {
-			return new SimpleXMLElement('<?xml version="1.0" encoding="utf-8" ?>
+			return new \SimpleXMLElement('<?xml version="1.0" encoding="utf-8" ?>
 <pluggable type="theme">
 	<name>Unknown Theme</name>
 	<version>1.0</version>
@@ -102,9 +110,11 @@ class Theme extends Pluggable
 ');
 		}
 		if ( $xml_content = file_get_contents( $xml_file ) ) {
-			$theme_data = new SimpleXMLElement( $xml_content );
+			$theme_data = new \SimpleXMLElement( $xml_content );
+			$theme_data['filename'] = $xml_file;
 			return $theme_data;
 		}
+		return null;
 	}
 
 	/**
@@ -121,16 +131,20 @@ class Theme extends Pluggable
 			$this->charset = MultiByte::hab_encoding();
 		}
 		
-		if ( !$this->template_engine->assigned( 'user' ) ) {
-			$this->assign( 'user', User::identify() );
+		if ( !isset($this->user) ) {
+			$this->user = User::identify();
 		}
 
-		if ( !$this->template_engine->assigned( 'loggedin' ) ) {
-			$this->assign( 'loggedin', User::identify()->loggedin );
+		if ( !isset($this->loggedin) ) {
+			$this->loggedin = User::identify()->loggedin;
 		}
 
-		if ( !$this->template_engine->assigned( 'page' ) ) {
-			$this->assign( 'page', isset( $this->page ) ? $this->page : 1 );
+		if ( !isset($this->page) ) {
+			$this->page = isset( $this->page ) ? $this->page : 1;
+		}
+
+		if ( !isset($this->page_title) ) {
+			$this->page_title = $this->page_title();  // This calls theme_page_title via the theme_* plugin hook.
 		}
 
 		$handler = Controller::get_handler();
@@ -329,7 +343,7 @@ class Theme extends Pluggable
 			'multiple',
 		);
 
-		// Makes sure home displays only entries
+		// Use the according preset defined in the Posts class
 		$default_filters = array(
 			'preset' => 'home',
 		);
@@ -350,9 +364,9 @@ class Theme extends Pluggable
 			'multiple',
 		);
 
-		// Makes sure home displays only entries
+		// Use the according preset defined in the Posts class
 		$default_filters = array(
-			'content_type' => Post::type( 'entry' ),
+			'preset' => 'page',
 		);
 
 		$paramarray['user_filters'] = array_merge( $default_filters, $user_filters );
@@ -403,9 +417,9 @@ class Theme extends Pluggable
 			'multiple',
 		);
 
-		// Makes sure home displays only entries
+		// Use the according preset defined in the Posts class
 		$default_filters = array(
-			'content_type' => Post::type( 'entry' ),
+			'preset' => 'tag',
 		);
 
 		$this->assign( 'tag', Controller::get_var( 'tag' ) );
@@ -475,11 +489,13 @@ class Theme extends Pluggable
 		$paramarray['fallback'][] = 'date';
 		$paramarray['fallback'][] = 'multiple';
 		$paramarray['fallback'][] = 'home';
-
-		$paramarray['user_filters'] = $user_filters;
-		if ( !isset( $paramarray['user_filters']['content_type'] ) ) {
-			$paramarray['user_filters']['content_type'] = Post::type( 'entry' );
-		}
+	
+		// Use the according preset defined in the Posts class
+		$default_filters = array(
+			'preset' => 'date',
+		);
+		
+		$paramarray['user_filters'] = array_merge( $default_filters, $user_filters );
 
 		$this->assign( 'year', $y ? (int)Controller::get_var( 'year' ) : null );
 		$this->assign( 'month', $m ? (int)Controller::get_var( 'month' ) : null );
@@ -499,9 +515,14 @@ class Theme extends Pluggable
 			'multiple',
 		);
 
-		$paramarray['user_filters'] = $user_filters;
+		// Use the according preset defined in the Posts class
+		$default_filters = array(
+			'preset' => 'search',
+		);
+		
+		$paramarray['user_filters'] = array_merge( $default_filters, $user_filters );
 
-		$this->assign( 'criteria', Controller::get_var( 'criteria' ) );
+		$this->assign( 'criteria', Controller::get_handler_vars()->escape( 'criteria' ) );
 		return $this->act_display( $paramarray );
 	}
 
@@ -562,10 +583,10 @@ class Theme extends Pluggable
 			$this->add_template_vars();
 		}
 		$this->template_engine->clear();
-		for ( $z = 0; $z <= $this->current_var_stack; $z++ ) {
-			foreach ( $this->var_stack[$z] as $key => $value ) {
-				$this->template_engine->assign( $key, $value );
-			}
+
+		$stack = call_user_func_array('array_merge', $this->var_stack);
+		foreach ( $stack as $key => $value ) {
+			$this->template_engine->assign( $key, $value );
 		}
 	}
 
@@ -603,8 +624,8 @@ class Theme extends Pluggable
 		Plugins::act( 'template_header', $theme );
 
 		$atom = Stack::get( 'template_atom', '<link rel="%1$s" type="%2$s" title="%3$s" href="%4$s">' );
-		$styles = Stack::get( 'template_stylesheet', array( 'Stack', 'styles' ) );
-		$scripts = Stack::get( 'template_header_javascript', array( 'Stack', 'scripts' ) );
+		$styles = Stack::get( 'template_stylesheet', Method::create( '\\Habari\\Stack', 'styles' ) );
+		$scripts = Stack::get( 'template_header_javascript', Method::create( '\\Habari\\Stack', 'scripts' ) );
 		
 		$output = implode( "\n", array( $atom, $styles, $scripts ) );
 		
@@ -621,8 +642,8 @@ class Theme extends Pluggable
 		Plugins::act( 'template_footer', $theme );
 		Stack::dependent('template_footer_javascript', 'template_header_javascript');
 		Stack::dependent('template_footer_stylesheet', 'template_stylesheet');
-		$output = Stack::get( 'template_footer_stylesheet', array( 'Stack', 'styles' ) );
-		$output .= Stack::get( 'template_footer_javascript', array( 'Stack', 'scripts' ) );
+		$output = Stack::get( 'template_footer_stylesheet', Method::create( '\\Habari\\Stack', 'styles' ) );
+		$output .= Stack::get( 'template_footer_javascript', Method::create( '\\Habari\\Stack', 'scripts' ) );
 		return $output;
 	}
 
@@ -643,7 +664,7 @@ class Theme extends Pluggable
 			$content_types = Utils::single_array( $object->content_type() );
 		}
 		if ( is_object( $object ) ) {
-			$content_types[] = strtolower( get_class( $object ) );
+			$content_types[] = strtolower( Utils::class_only( $object ) );
 		}
 		$content_types[] = 'content';
 		$content_types = array_flip( $content_types );
@@ -973,16 +994,18 @@ class Theme extends Pluggable
 	 * Detects if a variable is assigned to the template engine for use in
 	 * constructing the template's output.
 	 *
-	 * @param key name of variable
-	 * @returns boolean true if name is set, false if not set
+	 * @param string $key name of variable
+	 * @return bool true if name is set, false if not set
 	 */
 	public function __isset( $key )
 	{
-		return isset( $this->var_stack[$this->current_var_stack][$key] );
+		$stack = call_user_func_array('array_merge', $this->var_stack);
+		return isset( $stack[$key] );
 	}
 
 	/**
 	 * Set a template variable, a property alias for assign()
+	 * This can only affect the current stack level!
 	 *
 	 * @param string $key The template variable to set
 	 * @param mixed $value The value of the variable
@@ -1000,14 +1023,16 @@ class Theme extends Pluggable
 	 */
 	public function __get( $key )
 	{
-		if ( isset( $this->var_stack[$this->current_var_stack][$key] ) ) {
-			return $this->var_stack[$this->current_var_stack][$key];
+		$stack = call_user_func_array('array_merge', $this->var_stack);
+		if ( isset( $stack[$key] ) ) {
+			return $stack[$key];
 		}
 		return '';
 	}
 
 	/**
 	 * Remove a template variable value
+	 * This can only affect the current stack level!
 	 *
 	 * @param string $key The template variable name to unset
 	 */
@@ -1061,7 +1086,7 @@ class Theme extends Pluggable
 				$function = $matches[1];
 			}
 			array_unshift( $params, $function, $this );
-			$result = call_user_func_array( array( 'Plugins', 'theme' ), $params );
+			$result = call_user_func_array( Method::create( '\\Habari\\Plugins', 'theme' ), $params );
 			switch ( $purposed ) {
 				case 'return':
 					return $result;
@@ -1272,17 +1297,19 @@ class Theme extends Pluggable
 			unset( $block->_last );
 		}
 
-		// This is the area fallback template list
-		$fallback = array(
-			$context . '.area.' . $area,
-			$context . '.area',
-			'area.' . $area,
-			'area',
-		);
-		$this->content = $output;
-		$newoutput = $this->display_fallback( $fallback, 'fetch' );
-		if ( $newoutput !== false ) {
-			$output = $newoutput;
+		if(trim($output) != '') {
+			// This is the area fallback template list
+			$fallback = array(
+				$context . '.area.' . $area,
+				$context . '.area',
+				'area.' . $area,
+				'area',
+			);
+			$this->content = $output;
+			$newoutput = $this->display_fallback( $fallback, 'fetch' );
+			if ( $newoutput !== false ) {
+				$output = $newoutput;
+			}
 		}
 
 		$this->area = '';
@@ -1311,17 +1338,38 @@ class Theme extends Pluggable
 		$body_class = Plugins::filter( 'body_class', $body_class, $theme );
 		return implode( ' ', $body_class );
 	}
+
+	/**
+	 * A Theme function to provide a page title
+	 * @param Theme $theme The current theme
+	 *
+	 */
+	function theme_page_title( $theme )
+	{
+		$component = array();
+		if(isset($this->request)) {
+			if($this->request->display_post && isset($theme->post)) {
+				$component['post'] = $theme->post->title_title;
+			}
+			if($this->request->display_entries_by_tag && isset($theme->post)) {
+				$component['tag'] = _t('Posts tagged with "%s"', array(implode(',', $theme->include_tag)));
+			}
+		}
+		$component['site'] = Options::get('title');
+		$component = Plugins::filter('page_titles', $component, $theme);
+		return implode(' - ', $component);
+	}
 	
 	/**
 	 * Add javascript to the stack to be output in the theme.
 	 * 
-	 * @param string $where Where should it be output? Options are header and footer.
 	 * @param string $value Either a URL or raw JS to be output inline.
+	 * @param string $where Where should it be output? Options are header and footer.
 	 * @param string $name A name to reference this script by. Used for removing or using in $requires by other scripts.
 	 * @param string|array $requires Either a string or an array of strings of $name's for scripts this script requires.
 	 * @return boolean True if added successfully, false otherwise.
 	 */
-	public function add_script ( $where = 'header', $value, $name = null, $requires = null )
+	public function add_script ( $value, $where = 'header', $name = null, $requires = null )
 	{
 		
 		$result = false;
@@ -1345,13 +1393,13 @@ class Theme extends Pluggable
 	/**
 	 * Add a stylesheet to the stack to be output in the theme.
 	 * 
-	 * @param string $where Where should it be output? Options are header and footer.
 	 * @param string $value Either a URL or raw CSS to be output inline.
+	 * @param string $where Where should it be output? Options are header and footer.
 	 * @param string $name A name to reference this script by. Used for removing or using in $after by other scripts.
 	 * @param string|array $requires Either a string or an array of strings of $name's for scripts this script requires.
 	 * @return boolean True if added successfully, false otherwise.
 	 */
-	public function add_style ( $where = 'header', $value, $name = null, $requires = null )
+	public function add_style ( $value, $where = 'header', $name = null, $requires = null )
 	{
 		
 		$result = false;
@@ -1476,6 +1524,7 @@ class Theme extends Pluggable
 				HABARI_PATH . '/user/themes/' => Site::get_url( 'habari' ) . '/user/themes/',
 				HABARI_PATH . '/3rdparty/themes/' => Site::get_url( 'habari' ) . '/3rdparty/themes/',
 				HABARI_PATH . '/system/themes/' => Site::get_url( 'habari' ) . '/system/themes/',
+				HABARI_PATH . '/system/admin/' => Site::get_url( 'habari' ) . '/system/admin/',
 			);
 		}
 

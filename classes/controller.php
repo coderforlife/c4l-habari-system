@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Class which handles incoming requests and drives the
  * MVC strategy for building the model and assigning to
@@ -54,7 +56,7 @@ class Controller extends Singleton
 	 */
 	public static function get_full_url()
 	{
-		return self::get_base_url() . self::get_stub();
+		return Utils::end_in_slash(self::get_base_url()) . self::get_stub();
 	}
 
 	/**
@@ -70,7 +72,7 @@ class Controller extends Singleton
 	/**
 	 * Returns the action handler
 	 *
-	 * @return  ActionHandler  handler object
+	 * @return \Habari\ActionHandler handler object
 	 */
 	public static function get_handler()
 	{
@@ -89,7 +91,7 @@ class Controller extends Singleton
 
 	/**
 	 * A convenience method for returning a handler variable (handler_var).
-	 * This includes parameters set on the url, and fields submitted by POST.
+	 * This includes only parameters set on the url.
 	 * The alternative to this, while possible to write, is just too long.
 	 * @param string $name The name of the variable to return.
 	 * @param mixed $default A default value to return if the variable is not set.
@@ -102,7 +104,7 @@ class Controller extends Singleton
 
 	/**
 	 * A convenience method for returning the rewrite rule that matches the requested URL
-	 * @return RewriteRule|null The rule that matches the requested URL
+	 * @return \Habari\RewriteRule|null The rule that matches the requested URL
 	 */
 	public static function get_matched_rule()
 	{
@@ -122,9 +124,10 @@ class Controller extends Singleton
 		/* Grab the base URL from the Site class */
 		$controller->base_url = Site::get_path( 'base', true );
 
+		/* If we're installed in a directory subsite, add that to the base_url */
+//		$controller->base_url .= Site::$config_urldir;
+
 		/* Start with the entire URL coming from web server... */
-		$start_url = '';
-		
 		if ( isset( $_SERVER['REQUEST_URI'] ) ) {
 			$start_url = $_SERVER['REQUEST_URI'];
 		}
@@ -147,7 +150,10 @@ class Controller extends Singleton
 		/* Strip out the base URL from the requested URL */
 		/* but only if the base URL isn't / */
 		if ( '/' != $controller->base_url ) {
-			$start_url = str_replace( $controller->base_url, '', $start_url );
+			if(substr($controller->base_url, -1) == '/') {
+				$controller->base_url = substr($controller->base_url, 0, -1);
+			}
+			$start_url = preg_replace( '#^' . preg_quote($controller->base_url, '#') . '#i', '', $start_url );
 		}
 
 		// undo &amp;s
@@ -170,7 +176,12 @@ class Controller extends Singleton
 
 		/* OK, we have a matching rule.  Set the action and create a handler */
 		$controller->action = $matched_rule->action;
-		$controller->handler = new $matched_rule->handler();
+		$handler = $matched_rule->handler;
+		// @todo This is pretty kludgy.  If there's no namespace in the handler class, add one.
+		if(strpos($handler, '\\') === false) {
+			$handler = '\\Habari\\' . $handler;
+		}
+		$controller->handler = new $handler();
 		/* Insert the regexed submatches as the named parameters */
 		$controller->handler->handler_vars['entire_match'] = $matched_rule->entire_match; // The entire matched string is returned at index 0
 		$controller->handler->handler_vars['matched_rule'] = $matched_rule;
@@ -180,7 +191,7 @@ class Controller extends Singleton
 
 		/* Also, we musn't forget to add the GET and POST vars into the action's settings array */
 		$handler_vars = new SuperGlobal( $controller->handler->handler_vars );
-		$handler_vars = $handler_vars->merge( $_GET, $_POST );
+		//$handler_vars = $handler_vars->merge( $_GET, $_POST );
 		$controller->handler->handler_vars = $handler_vars;
 		return true;
 	}
@@ -195,6 +206,28 @@ class Controller extends Singleton
 		if ( method_exists( Controller::instance()->handler, 'act' ) ) {
 			Controller::instance()->handler->act( Controller::instance()->action );
 		}
+	}
+
+	/**
+	 * Get an object that represents the request made
+	 * @return stdClass An object with properties named after rewrite rules, which are true if those rules were used to handle the current request
+	 */
+	public static function get_request_obj()
+	{
+		$request = new \stdClass();
+		foreach ( URL::get_active_rules() as $rule ) {
+			$request->{$rule->name} = false;
+		}
+		$matched_rule = URL::get_matched_rule();
+		$request->{$matched_rule->name} = true;
+		// Does the rule have any supplemental request types?
+		if(isset($matched_rule->named_arg_values['request_types'])) {
+			foreach($matched_rule->named_arg_values['request_types'] as $type) {
+				$request->$type = true;
+			}
+		}
+		$request = Plugins::filter('request_object', $request, $matched_rule);
+		return $request;
 	}
 }
 

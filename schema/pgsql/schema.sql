@@ -17,6 +17,18 @@ CREATE TABLE {$prefix}posts (
   UNIQUE (slug)
 );
 
+CREATE SEQUENCE {$prefix}revisions_pkey_seq;
+CREATE TABLE {$prefix}revisions (
+  id BIGINT NOT NULL DEFAULT nextval('{$prefix}revisions_pkey_seq'),
+  post_id BIGINT NOT NULL,
+  change_field VARCHAR(255) NOT NULL,
+  old_value TEXT DEFAULT NULL,
+  user_id INTEGER DEFAULT NULL,
+  change_date INTEGER NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE (post_id, change_date, change_field)
+);
+
 CREATE TABLE {$prefix}postinfo (
   post_id BIGINT NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -93,6 +105,22 @@ CREATE TABLE {$prefix}commentinfo (
   PRIMARY KEY (comment_id,name)
 );
 
+CREATE SEQUENCE {$prefix}commenttype_pkey_seq;
+CREATE TABLE {$prefix}commenttype (
+  id INTEGER NOT NULL DEFAULT nextval('{$prefix}commenttype_pkey_seq'),
+  name VARCHAR(255), 
+  active INTEGER DEFAULT 1,
+  PRIMARY KEY (id)
+);
+
+CREATE SEQUENCE {$prefix}commentstatus_pkey_seq;
+CREATE TABLE {$prefix}commentstatus (
+  id INTEGER NOT NULL DEFAULT nextval('{$prefix}commentstatus_pkey_seq'),
+  name VARCHAR(255), 
+  internal INTEGER DEFAULT 1,
+  PRIMARY KEY (id)
+);
+
 CREATE SEQUENCE {$prefix}rewrite_rules_pkey_seq;
 CREATE TABLE {$prefix}rewrite_rules (
   rule_id INTEGER NOT NULL DEFAULT nextval('{$prefix}rewrite_rules_pkey_seq'),
@@ -135,7 +163,7 @@ CREATE TABLE {$prefix}log (
   type_id INTEGER NOT NULL,
   severity_id SMALLINT NOT NULL,
   message VARCHAR(255) NOT NULL,
-  data BYTEA NULL,
+  data TEXT NULL,
   timestamp INT NOT NULL,
   ip VARCHAR(45) NOT NULL,
   PRIMARY KEY (id)

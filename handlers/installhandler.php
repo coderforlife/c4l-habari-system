@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 define( 'MIN_PHP_VERSION', '5.3.3' );
 
 /**
@@ -25,15 +27,15 @@ class InstallHandler extends ActionHandler
 		/**
 		 * Set user selected Locale or default
 		 */
-		$this->theme->locales = HabariLocale::list_all();
+		$this->theme->locales = Locale::list_all();
 		if ( isset( $_POST['locale'] ) && $_POST['locale'] != null ) {
-			HabariLocale::set( $_POST['locale'] );
+			Locale::set( $_POST['locale'] );
 		}
 		else {
-			HabariLocale::set( Config::get('locale', 'en-us' ) );
+			Locale::set( Config::get('locale', 'en-us' ) );
 		}
-		$this->theme->locale = HabariLocale::get();
-		$this->handler_vars['locale'] = HabariLocale::get();
+		$this->theme->locale = Locale::get();
+		$this->handler_vars['locale'] = Locale::get();
 
 		/**
 		 * Check .htaccess first because ajax doesn't work without it.
@@ -70,8 +72,8 @@ class InstallHandler extends ActionHandler
 		/**
 		 * Add the AJAX hooks
 		 */
-		Plugins::register( array( 'InstallHandler', 'ajax_check_mysql_credentials' ), 'ajax_', 'check_mysql_credentials' );
-		Plugins::register( array( 'InstallHandler', 'ajax_check_pgsql_credentials' ), 'ajax_', 'check_pgsql_credentials' );
+		Plugins::register( Method::create( '\Habari\InstallHandler', 'ajax_check_mysql_credentials' ), 'ajax_', 'check_mysql_credentials' );
+		Plugins::register( Method::create( '\Habari\InstallHandler', 'ajax_check_pgsql_credentials' ), 'ajax_', 'check_pgsql_credentials' );
 
 		/**
 		 * Let's check the config.php file if no POST data was submitted
@@ -98,7 +100,7 @@ class InstallHandler extends ActionHandler
 				// write new config file
 				if ( $this->write_config_file( true ) ) {
 					// successful, so redirect:
-					Utils::redirect( Site::get_url( 'habari' ) );
+					Utils::redirect( Site::get_url( 'site' ) );
 				}
 			}
 
@@ -193,7 +195,7 @@ class InstallHandler extends ActionHandler
 		}
 
 		EventLog::log( _t( 'Habari successfully installed.' ), 'info', 'default', 'habari' );
-		Utils::redirect( Site::get_url( 'habari' ) );
+		Utils::redirect( Site::get_url( 'site' ) );
 	}
 
 	/**
@@ -350,7 +352,7 @@ class InstallHandler extends ActionHandler
 
 		if ( extension_loaded( 'pdo' ) ) {
 			/* Check for PDO drivers */
-			$pdo_drivers = PDO::getAvailableDrivers();
+			$pdo_drivers = \PDO::getAvailableDrivers();
 			if ( ! empty( $pdo_drivers ) ) {
 				$pdo_drivers = array_combine( $pdo_drivers, $pdo_drivers );
 				// Include only those drivers that we include database support for
@@ -492,6 +494,12 @@ class InstallHandler extends ActionHandler
 			return false;
 		}
 
+		if ( ! $this->create_base_comment_types() ) {
+			$this->theme->assign( 'form_errors', array( 'options'=>_t( 'Problem creating base comment types and statuses' ) ) );
+			DB::rollback();
+			return false;
+		}
+
 		// Let's setup the admin user and group now.
 		// But first, let's make sure that no users exist
 		$all_users = Users::get_all();
@@ -550,7 +558,7 @@ class InstallHandler extends ActionHandler
 			$connect = DB::connect( $pdo, $this->handler_vars['db_user'], html_entity_decode( $this->handler_vars['db_pass'] ) );
 			return true;
 		}
-		catch( PDOException $e ) {
+		catch( \PDOException $e ) {
 			if ( strpos( $e->getMessage(), '[1045]' ) ) {
 				$this->theme->assign( 'form_errors', array( 'mysql_db_pass' => _t( 'Access denied. Make sure these credentials are valid.' ) ) );
 			}
@@ -583,7 +591,7 @@ class InstallHandler extends ActionHandler
 			$connect = DB::connect( $pdo, $this->handler_vars['db_user'], html_entity_decode( $this->handler_vars['db_pass'] ) );
 			return true;
 		}
-		catch( PDOException $e ) {
+		catch( \PDOException $e ) {
 			if ( strpos( $e->getMessage(), '[1045]' ) ) {
 				$this->theme->assign( 'form_errors', array( 'pgsql_db_pass' => _t( 'Access denied. Make sure these credentials are valid.' ) ) );
 			}
@@ -657,7 +665,7 @@ class InstallHandler extends ActionHandler
 				DB::connect();
 				return true;
 			}
-			catch( PDOException $e ) {
+			catch( \PDOException $e ) {
 				$this->theme->assign( 'form_errors', array( 'db_user'=>_t( 'Problem connecting to supplied database credentials' ) ) );
 				return false;
 
@@ -783,10 +791,13 @@ class InstallHandler extends ActionHandler
 		}
 
 		// Add the cronjob to trim the log so that it doesn't get too big
-		CronTab::add_daily_cron( 'trim_log', array( 'EventLog', 'trim' ), _t( 'Trim the log table' ) );
-		
+		CronTab::add_daily_cron( 'trim_log', Method::create( '\Habari\EventLog', 'trim' ), _t( 'Trim the log table' ) );
+
 		// Add the cronjob to check for plugin updates
-		CronTab::add_daily_cron( 'update_check', array( 'Update', 'cron' ), _t( 'Perform a check for plugin updates.' ) );
+		CronTab::add_daily_cron( 'update_check', Method::create( '\Habari\Update', 'cron' ), _t( 'Perform a check for plugin updates.' ) );
+
+		// Add the cronjob to run garbage collection on expired sessions
+		CronTab::add_hourly_cron( 'session_gc', Method::create( '\Habari\Session', 'gc' ), _t( 'Perform session garbage collection.' ) );
 
 		return true;
 	}
@@ -1044,9 +1055,7 @@ class InstallHandler extends ActionHandler
 			$id = Plugins::id_from_file( $file );
 			if ( in_array( $id, $plugin_ids ) ) {
 				Plugins::activate_plugin( $file );
-				echo 'ACTIVATED:';
 			}
-			var_dump($file, $id);
 		}
 
 		// unset the user_id session variable
@@ -1073,7 +1082,7 @@ class InstallHandler extends ActionHandler
 		);
 		$rewrite_base = trim( dirname( $_SERVER['SCRIPT_NAME'] ), '/\\' );
 		if ( $rewrite_base != '' ) {
-			$htaccess['rewrite_base'] = 'RewriteBase /' . $rewrite_base;
+			$htaccess['rewrite_base'] = 'RewriteBase "/' . $rewrite_base . '"';
 		}
 
 		return $htaccess;
@@ -1121,12 +1130,12 @@ class InstallHandler extends ActionHandler
 			// the Habari block exists, but we need to make sure
 			// it is correct.
 			// Check that the rewrite rules actually do the job.
-			$test_ajax_url = Site::get_url( 'habari' ) . '/check_mod_rewrite';
+			$test_ajax_url = Site::get_url( 'site' ) . '/check_mod_rewrite';
 			$rr = new RemoteRequest( $test_ajax_url, 'POST', 5 );
 			try {
 				$rr_result = $rr->execute();
 			}
-			catch ( Exception $e ) {
+			catch ( \Exception $e ) {
 				$result = $this->write_htaccess( true, true, true );
 			}
 		}
@@ -1145,7 +1154,7 @@ class InstallHandler extends ActionHandler
 		$htaccess = $this->htaccess();
 		if ( $rewritebase ) {
 			$rewrite_base = trim( dirname( $_SERVER['SCRIPT_NAME'] ), '/\\' );
-			$htaccess['rewrite_base'] = 'RewriteBase /' . $rewrite_base;
+			$htaccess['rewrite_base'] = 'RewriteBase "/' . $rewrite_base . '"';
 		}
 		$file_contents = "\n" . implode( "\n", $htaccess ) . "\n";
 
@@ -1396,12 +1405,10 @@ class InstallHandler extends ActionHandler
 				$db_name = '';
 				break;
 			case 'mysql':
-				list( $host,$name ) = explode( ';', $remainder );
-				list( $discard, $db_name ) = explode( '=', $name );
-				break;
 			case 'pgsql':
-				list( $host,$name ) = explode( ' ', $remainder );
-				list( $discard, $db_name ) = explode( '=', $name );
+				$pairs = $this->parse_dsn( $remainder );
+				
+				$db_name = $pairs['dbname'];
 				break;
 		}
 
@@ -1453,7 +1460,7 @@ class InstallHandler extends ActionHandler
 
 		// Auto-truncate the log table
 		if ( ! CronTab::get_cronjob( 'truncate_log' ) ) {
-			CronTab::add_daily_cron( 'truncate_log', array( 'Utils', 'truncate_log' ), _t( 'Truncate the log table' ) );
+			CronTab::add_daily_cron( 'truncate_log', Method::create( '\Habari\Utils', 'truncate_log' ), _t( 'Truncate the log table' ) );
 		}
 
 		return true;
@@ -1708,7 +1715,7 @@ class InstallHandler extends ActionHandler
 		CronTab::delete_cronjob( 'truncate_log' );
 		
 		// add the new trim_log cronjob
-		CronTab::add_daily_cron( 'trim_log', array( 'EventLog', 'trim' ), _t( 'Trim the log table' ) );
+		CronTab::add_daily_cron( 'trim_log', Method::create( '\Habari\EventLog', 'trim' ), _t( 'Trim the log table' ) );
 		
 	}
 	
@@ -1716,7 +1723,7 @@ class InstallHandler extends ActionHandler
 	{
 		
 		// Add the cronjob to check for plugin updates
-		CronTab::add_daily_cron( 'update_check', array( 'Update', 'cron' ), _t( 'Perform a check for plugin updates.' ) );
+		CronTab::add_daily_cron( 'update_check', Method::create( '\Habari\Update', 'cron' ), _t( 'Perform a check for plugin updates.' ) );
 		
 	}
 	
@@ -1784,6 +1791,81 @@ class InstallHandler extends ActionHandler
 		Options::set( 'public-GUID', $public );
 
 	}
+
+	private function upgrade_db_post_5106 ( ) {
+
+		// get all unserialized options from the db
+		// we do this manually just so things are cleaner
+		$results = DB::get_results( 'SELECT name, value, type FROM {options} where type = :type', array( 'type' => 0 ), 'QueryRecord' );
+
+		foreach ( $results as $result ) {
+			// simply save it again, no need to duplicate the query
+			Options::set( $result->name, $result->value );
+		}
+
+		// @todo i don't feel like seeing if we could properly handle removing the type column at the same time, so that should be done in a later version
+
+	}
+
+	private function upgrade_db_post_5107 ( ) {
+
+		// delete the current un-namespaced CronJobs by these names
+		CronTab::delete_cronjob( 'trim_log' );
+		CronTab::delete_cronjob( 'update_check' );
+
+		// we could have a bunch of the single update crons now, and there's no way to handle that using CronTab, so do it manually
+		$crons = DB::get_results( 'SELECT * FROM {crontab} WHERE name = ?', array( 'update_check_single' ), '\Habari\CronJob' );
+
+		foreach ( $crons as $cron ) {
+			$cron->delete();
+		}
+
+		// Add the cronjob to trim the log so that it doesn't get too big
+		CronTab::add_daily_cron( 'trim_log', Method::create( '\Habari\EventLog', 'trim' ), _t( 'Trim the log table' ) );
+
+		// Add the cronjob to check for plugin updates
+		CronTab::add_daily_cron( 'update_check', Method::create( '\Habari\Update', 'cron' ), _t( 'Perform a check for plugin updates.' ) );
+
+	}
+
+	public function upgrade_db_post_5111 ( ) {
+
+		// add the cronjob to perform garbage collection on sessions
+		CronTab::add_hourly_cron( 'session_gc', Method::create( '\Habari\Session', 'gc' ), _t( 'Perform session garbage collection.' ) );
+
+	}
+
+	public function upgrade_db_post_5112 ( ) {
+
+		$this->create_base_comment_types();
+
+		// Throw the existing values out far to avoid collisions
+		DB::query('UPDATE {comments} SET status = status + 30, type = type + 30');
+
+		// Update statuses
+		$updates = array('unapproved' => 0, 'approved' => 1, 'spam' => 2, 'deleted' => 3);
+		foreach($updates as $name => $oldvalue) {
+			DB::query(
+				'UPDATE {comments} SET status = :newstatus WHERE status = :oldstatus',
+				array(
+					'newstatus' => Comment::status($name),
+					'oldstatus' => 30 + $oldvalue,
+				)
+			);
+		}
+
+		// Update types
+		$updates = array('comment' => 0, 'pingback' => 1, 'trackback' => 2);
+		foreach($updates as $name => $oldvalue) {
+			DB::query(
+				'UPDATE {comments} SET type = :newtype WHERE type = :oldtype',
+				array(
+					'newtype' => Comment::type($name),
+					'oldtype' => 30 + $oldvalue
+				)
+			);
+		}
+	}
 	
 	/**
 	 * Validate database credentials for MySQL
@@ -1791,7 +1873,7 @@ class InstallHandler extends ActionHandler
 	 */
 	public function ajax_check_mysql_credentials()
 	{
-		$xml = new SimpleXMLElement( '<response></response>' );
+		$xml = new \SimpleXMLElement( '<response></response>' );
 		// Missing anything?
 		if ( !isset( $_POST['host'] ) ) {
 			$xml->addChild( 'status', 0 );
@@ -1824,7 +1906,7 @@ class InstallHandler extends ActionHandler
 				$connect = DB::connect( $pdo, $_POST['user'], $_POST->raw( 'pass' ) );
 				$xml->addChild( 'status', 1 );
 			}
-			catch( Exception $e ) {
+			catch( \Exception $e ) {
 				$xml->addChild( 'status', 0 );
 				$xml_error = $xml->addChild( 'error' );
 				if ( strpos( $e->getMessage(), '[1045]' ) ) {
@@ -1862,7 +1944,7 @@ class InstallHandler extends ActionHandler
 	 */
 	public function ajax_check_pgsql_credentials()
 	{
-		$xml = new SimpleXMLElement( '<response></response>' );
+		$xml = new \SimpleXMLElement( '<response></response>' );
 		// Missing anything?
 		if ( !isset( $_POST['host'] ) ) {
 			$xml->addChild( 'status', 0 );
@@ -1895,7 +1977,7 @@ class InstallHandler extends ActionHandler
 				$connect = DB::connect( $pdo, $_POST['user'], $_POST->raw( 'pass' ) );
 				$xml->addChild( 'status', 1 );
 			}
-			catch( Exception $e ) {
+			catch( \Exception $e ) {
 				$xml->addChild( 'status', 0 );
 				$xml_error = $xml->addChild( 'error' );
 				if ( strpos( $e->getMessage(), '[1045]' ) ) {
@@ -1934,7 +2016,7 @@ class InstallHandler extends ActionHandler
 	public function ajax_check_sqlite_credentials()
 	{
 		$db_file = $_POST['file'];
-		$xml = new SimpleXMLElement( '<response></response>' );
+		$xml = new \SimpleXMLElement( '<response></response>' );
 		// Missing anything?
 		if ( !isset( $db_file ) ) {
 			$xml->addChild( 'status', 0 );
@@ -2004,24 +2086,50 @@ class InstallHandler extends ActionHandler
 				$this->handler_vars['db_file'] = $remainder;
 				break;
 			case 'mysql':
-				list( $host,$name ) = explode( ';', $remainder );
-				list( $discard, $this->handler_vars['db_host'] ) = explode( '=', $host );
-				list( $discard, $this->handler_vars['db_schema'] ) = explode( '=', $name );
-				break;
 			case 'pgsql':
-				list( $host,$name )= explode( ' ', $remainder );
-				list( $discard, $this->handler_vars['db_host'] ) = explode( '=', $host );
-				list( $discard, $this->handler_vars['db_schema'] ) = explode( '=', $name );
+				$pairs = $this->parse_dsn( $remainder );
+				
+				$host = $pairs['host'];
+				
+				if ( isset( $pairs['port'] ) ) {
+					$host .= ';port=' . $pairs['port'];
+				}
+				
+				$this->handler_vars['db_host'] = $host;
+				$this->handler_vars['db_schema'] = $pairs['dbname'];
+				
 				break;
 		}
 		$this->handler_vars['db_user'] = Config::get( 'db_connection' )->username;
 		$this->handler_vars['db_pass'] = Config::get( 'db_connection' )->password;
 		$this->handler_vars['table_prefix'] = Config::get( 'db_connection' )->prefix;
 	}
+	
+	private function parse_dsn ( $dsn ) {
+		
+		// before we replace spaces, which may give us double semicolons if there's one after a semicolon, condense it down
+		$dsn = str_replace( '; ', ';', $dsn );
+		
+		// spaces are also allowed in the dsn, but let's unify everything with a semicolon for parsing
+		$dsn = str_replace( ' ', ';', $dsn );
+		
+		// now to split them apart
+		$temp_pairs = explode( ';', $dsn );
+		
+		// and then by =
+		$pairs = array();
+		foreach ( $temp_pairs as $temp_pair ) {
+			list( $k, $v ) = explode( '=', $temp_pair );
+			$pairs[ $k ] = $v;
+		}
+		
+		return $pairs;
+		
+	}
 
 	/**
 	 * Return a comma-separated list of features, given a SimpleXMLElement
-	 * @param SimpleXMLElement $features An element containing children of <feature>
+	 * @param \SimpleXMLElement $features An element containing children of <feature>
 	 * @return string A comma-separated list of those features
 	 */
 	public static function get_feature_list($features) {
@@ -2030,6 +2138,23 @@ class InstallHandler extends ActionHandler
 			$output[(string)$feature] = (string)$feature;
 		}
 		return implode(',', $output);
+	}
+
+	/**
+	 * Create the base core comment types and statuses
+	 */
+	private function create_base_comment_types()
+	{
+		Comment::add_type('comment');
+		Comment::add_type('pingback');
+		Comment::add_type('trackback');
+
+		Comment::add_status('unapproved', true);
+		Comment::add_status('approved', true);
+		Comment::add_status('spam', true);
+		Comment::add_status('deleted', true);
+
+		return true;
 	}
 
 }

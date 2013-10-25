@@ -4,11 +4,12 @@
  *
  */
 
+namespace Habari;
 /**
  * Contains error-related functions and Habari's error handler.
  *
  **/
-class Error extends Exception
+class Error extends \Exception
 {
 	protected $message = '';
 	protected $is_error = false;
@@ -33,9 +34,9 @@ class Error extends Exception
 	 */
 	public static function handle_errors()
 	{
-		set_error_handler( array( 'Error', 'error_handler' ) );
-		set_exception_handler( array( 'Error', 'exception_handler' ) );
-		register_shutdown_function( array( 'Error', 'shutdown_handler' ) );
+		set_error_handler( Method::create( '\Habari\Error', 'error_handler' ) );
+		set_exception_handler( Method::create( '\Habari\Error', 'exception_handler' ) );
+		register_shutdown_function( Method::create( '\Habari\Error', 'shutdown_handler' ) );
 	}
 
 	public static function shutdown_handler ( ) {
@@ -103,11 +104,20 @@ class Error extends Exception
 			return;
 		}
 
-		if ( !function_exists( '_t' ) ) {
+		if ( !function_exists( '\Habari\_t' ) &&  !function_exists( '_t' ) ) {
 			function _t( $v )
 			{
 				return $v;
 			}
+
+			function _n( $singular, $plural, $count )
+			{
+				return ( $count == 1 ? $singular : $plural );
+			}
+		}
+
+		if(!defined('DEBUG')) {
+			define('DEBUG', false);
 		}
 
 		// Don't be fooled, we can't actually handle most of these.
@@ -138,13 +148,12 @@ class Error extends Exception
 			E_STRICT => _t( 'Strict Notice' ),
 			// @locale A fatal PHP error at runtime. An error handler may be able to work around it. If not, code execution stops.
 			E_RECOVERABLE_ERROR => _t( 'Recoverable Error' ),
-		);
-		if ( version_compare( PHP_VERSION, '5.3.0', '>=' ) ) {
 			// @locale A notification from PHP that the code is outdated and may not work in the future
-			$error_names[E_DEPRECATED] = _t( 'Deprecated violation' );
+			E_DEPRECATED => _t( 'Deprecated violation' ),
 			// @locale A notification that the code is outdated and Habari may not work with it in the future
-			$error_names[E_USER_DEPRECATED] = _t( 'User deprecated violation' );
-		}
+			E_USER_DEPRECATED => _t( 'User deprecated violation' ),
+		);
+		
 		if ( strpos( $errfile, HABARI_PATH ) === 0 ) {
 			$errfile = substr( $errfile, strlen( HABARI_PATH ) + 1 );
 		}

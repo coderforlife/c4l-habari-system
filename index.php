@@ -13,10 +13,12 @@
  * @package Habari
  */
 
+namespace Habari;
+
 // Fail out if not included from root
 if ( !defined( 'HABARI_PATH' ) ) {
 	header( 'HTTP/1.1 403 Forbidden', true, 403 );
-	die();
+	die('If you are seeing this message, and <a href="http://wiki.habariproject.org/en/FAQ#I_get_a_403_error_.28Forbidden.29_when_I_try_to_run_Habari_for_the_first_time.2C_why.3F">you were expecting to see your Habari install</a>, you probably cloned the wrong repo.');
 }
 
 // Compares PHP version against our requirement.
@@ -48,7 +50,7 @@ if ( !defined( 'GLOB_BRACE' ) ) {
 ob_start();
 
 require( dirname( __FILE__ ) . '/autoload.php' );
-spl_autoload_register( 'habari_autoload' );
+spl_autoload_register( array('\Habari\Autoload', 'habari_autoload') );
 
 // Replace all of the $_GET, $_POST and $_SERVER superglobals with object
 // representations of each.  Unset $_REQUEST, which is evil.
@@ -81,7 +83,7 @@ if ( file_exists( $config ) ) {
 // db_connection is an array with necessary informations to connect to the database.
 if ( Config::exists('db_connection') ) {
 	// Set the default locale.
-	HabariLocale::set( Config::get('locale', 'en-us' ) );
+	Locale::set( Config::get('locale', 'en-us' ) );
 
 	if ( !defined( 'DEBUG' ) ) {
 		define( 'DEBUG', false );
@@ -98,7 +100,7 @@ if ( Config::exists('db_connection') ) {
 			$installer->begin_install();
 		}
 	}
-	catch( PDOException $e ) {
+	catch( \PDOException $e ) {
 		// Error template.
 		$error_template = '<html><head><title>%s</title><link rel="stylesheet" type="text/css" href="' . Site::get_url( 'system' ) . '/admin/css/admin.css" media="screen"></head><body><div id="page"><div class="container"><h2>%s</h2><p>%s</p></div></div></body></html>';
 
@@ -107,7 +109,7 @@ if ( Config::exists('db_connection') ) {
 			_t( "Habari General Error" ), // page title
 			_t( "An error occurred" ), // H1 tag
 			( defined( 'DEBUG' ) && DEBUG == true ) ?
-				_t( "Unable to connect to database.  Error message: %s", array( $e->getMessage() ) ) :
+				_t( "Unable to connect to database.  Error message: @error", array( '@error' => $e->getMessage() ) ) :
 				_t( "Unable to connect to database." ) 
 			// Error message, more detail if DEBUG is defined.
 		);
@@ -130,12 +132,6 @@ else {
 
 /* Habari is installed and we established a connection with the database */
 
-// Set the locale from config, database, then default english locale
-HabariLocale::set( Config::get('locale', Options::get( 'locale', 'en-us' )) );
-if ( Options::get( 'system_locale' ) ) {
-	HabariLocale::set_system_locale( Options::get( 'system_locale' ) );
-}
-
 // Verify if the database has to be upgraded.
 if ( Version::requires_upgrade() ) {
 	$installer = new InstallHandler();
@@ -156,17 +152,26 @@ if ( isset( $_GET['asyncronous'] ) && Utils::crypt( Options::get( 'GUID' ), $_GE
 // @todo Find a better place to put this.
 header( 'Content-Type: text/html;charset=utf-8' );
 
-
 // Load and upgrade all the active plugins.
-spl_autoload_register( array( 'Plugins', '_autoload' ) );
+spl_autoload_register( Method::create( '\Habari\Plugins' , '_autoload' ) );
 Plugins::load_active();
-Plugins::upgrade();
 
 // All plugins loaded, tell the plugins.
 Plugins::act( 'plugins_loaded' );
 
 // Start the session.
 Session::init();
+
+// Set the locale from the user info else config, database, then default english locale
+if ( User::identify()->loggedin && User::identify()->info->locale_lang ) {
+	Locale::set( User::identify()->info->locale_lang );
+}
+else {
+	Locale::set( Config::get('locale', Options::get( 'locale', 'en-us' )) );
+}
+if ( Options::get( 'system_locale' ) ) {
+	Locale::set_system_locale( Options::get( 'system_locale' ) );
+}
 
 // Replace the $_COOKIE superglobal with an object representation
 SuperGlobal::process_c();
@@ -185,10 +190,13 @@ if ( defined( 'SUPPRESS_REQUEST' ) ) {
 Controller::parse_request();
 
 // Run the cron jobs asyncronously.
-CronTab::run_cron( true );
+CronHandler::run_cron( Config::get('cron_async', true) );
 
 // Dispatch the request (action) to the matched handler.
 Controller::dispatch_request();
+
+// Shut down sessions so they can write and send cookies and headers before output, but after everything should be done
+Session::shutdown();
 
 // Flush (send) the output buffer.
 $buffer = ob_get_clean();

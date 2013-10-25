@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari RewriteRule Class
  *
@@ -63,7 +65,7 @@ class RewriteRule extends QueryRecord
 	/**
 	 * Match the stub against this rule
 	 * Also sets internal structures based on a successful match
-	 * @param string The URL stub to match against
+	 * @param string $stub The URL stub to match against
 	 * @return boolean True if this rule matches the stub, false if not
 	 */
 	public function match( $stub )
@@ -71,6 +73,8 @@ class RewriteRule extends QueryRecord
 		if ( preg_match( $this->parse_regex, $stub, $pattern_matches ) > 0 ) {
 			$this->entire_match = array_shift( $pattern_matches ); // The entire matched string is returned at index 0
 			$named_args = $this->named_args; // Direct call shows a PHP notice
+
+			$result = true;
 
 			if ( (is_string($this->parameters) && $parameters = unserialize( $this->parameters )) || (is_array($this->parameters) && $parameters = $this->parameters )) {
 				$this->named_arg_values = array_merge( $this->named_arg_values, $parameters );
@@ -89,10 +93,25 @@ class RewriteRule extends QueryRecord
 			}
 
 			if ( isset( $parameters['require_match'] ) ) {
-				return call_user_func( $parameters['require_match'], $this, $stub, $parameters );
+				$result = call_user_func( $parameters['require_match'], $this, $stub, $parameters );
+			}
+			if ( $result && isset( $parameters['require_permission'] ) ) {
+				foreach ( $parameters['require_permission'] as $token => $access ) {
+					$access = Utils::single_array( $access );
+					foreach ( $access as $mask ) {
+						if ( is_bool( $mask ) && User::identify()->can( $token ) ) {
+							$result = true;
+							break;
+						}
+						elseif ( User::identify()->can( $token, $mask ) ) {
+							$result = true;
+							break 2;
+						}
+					}
+				}
 			}
 
-			return true;
+			return $result;
 		}
 		return false;
 	}
@@ -101,6 +120,7 @@ class RewriteRule extends QueryRecord
 	 * Builds a URL using this rule based on the passed in data
 	 * @param array $args An associative array of arguments to use for replacement in the rule
 	 * @param boolean $useall If true (default), then all passed parameters that are not part of the built URL are tacked onto the URL as querystring
+	 * @param bool $noamp If true, use HTML-encoded ampersands in the output URL
 	 * @return string The URL created from the substituted arguments
 	 */
 	public function build( $args, $useall = true, $noamp = false )
@@ -168,7 +188,7 @@ class RewriteRule extends QueryRecord
 	/**
 	 * Magic property getter for this class
 	 * @param string $name The name of the class property to return
-	 * @returns mixed The value of that field in this object
+	 * @return mixed The value of that field in this object
 	 */
 	public function __get( $name )
 	{

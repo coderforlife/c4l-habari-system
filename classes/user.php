@@ -8,6 +8,8 @@
  * @property-read boolean $loggedin Whether or not this user is currently identified
  */
 
+namespace Habari;
+
 /**
  * Habari UserRecord Class
  *
@@ -25,6 +27,7 @@
  * </code>
  *
  * @property UserInfo $info Metadata stored about this user in the userinfo table
+ * @property integer $id The id of the user
  *
  */
 class User extends QueryRecord implements FormStorage, IsContent
@@ -158,6 +161,7 @@ class User extends QueryRecord implements FormStorage, IsContent
 		$this->info->locale_tz = Options::get( 'timezone' );
 		$this->info->locale_date_format = Options::get( 'dateformat' );
 		$this->info->locale_time_format = Options::get( 'timeformat' );
+		$this->info->locale_lang = Options::get( 'locale', 'en-us' );
 
 		$this->info->commit();
 
@@ -259,10 +263,12 @@ class User extends QueryRecord implements FormStorage, IsContent
 		ACL::clear_caches();
 		Plugins::act( 'user_forget', $this );
 		Session::clear_userid( $_SESSION['user_id'] );
-		unset( $_SESSION['user_id'] );
+
+		// then destroy the entire session
+		Session::destroy();
 
 		if ( $redirect ) {
-			Utils::redirect( Site::get_url( 'habari' ) );
+			Utils::redirect( Site::get_url( 'site' ) );
 		}
 	}
 
@@ -280,7 +286,7 @@ class User extends QueryRecord implements FormStorage, IsContent
 			return false;
 		}
 
-		$user = new StdClass();
+		$user = new \StdClass();
 		$require = false;
 		$user = Plugins::filter( 'user_authenticate', $user, $who, $pw );
 		if ( $user instanceof User ) {
@@ -537,7 +543,7 @@ class User extends QueryRecord implements FormStorage, IsContent
 	{
 		$tokens = Utils::single_array( $tokens );
 		// Use ids internally for all tokens
-		$tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 
 		foreach ( $tokens as $token ) {
 			ACL::grant_user( $this->id, $token, $access );
@@ -562,7 +568,7 @@ class User extends QueryRecord implements FormStorage, IsContent
 	{
 		$tokens = Utils::single_array( $tokens );
 		// get token IDs
-		$tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 		foreach ( $tokens as $token ) {
 			ACL::revoke_user_token( $this->id, $token );
 			EventLog::log( _t( 'User %1$s: Permission to %2$s revoked.', array( $this->username, ACL::token_name( $token ) ) ), 'notice', 'user', 'habari' );
@@ -712,8 +718,25 @@ class User extends QueryRecord implements FormStorage, IsContent
 	 */
 	function field_save($key, $value)
 	{
-		$this->info->$key = $value;
-		$this->info->commit();
+		$default_fields = self::default_fields();
+		if(isset($default_fields[$key])) {
+			$this->$key = $value;
+		}
+		else {
+			$this->info->$key = $value;
+		}
+		$self = $this;
+		Session::queue(
+			function() use($self) {
+				if($self->id == 0) {
+					$self->insert();
+				}
+				else {
+					$self->update();
+				}
+			},
+			$this
+		);
 	}
 
 	/**
@@ -724,7 +747,13 @@ class User extends QueryRecord implements FormStorage, IsContent
 	 */
 	function field_load($key)
 	{
-		return $this->info->$key;
+		$default_fields = self::default_fields();
+		if(isset($default_fields[$key])) {
+			return $this->$key;
+		}
+		else {
+			return $this->info->$key;
+		}
 	}
 
 	/**

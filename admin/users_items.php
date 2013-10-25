@@ -1,23 +1,26 @@
-<?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
+<?php
+namespace Habari;
+if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); }
+?>
 <ul>
 	<?php foreach (Users::get_all() as $user) {
 		if ( $user->username == $currentuser->username ) {
-			$url = Url::get( 'admin', 'page=user' );
+			$url = Url::get( 'own_user_profile' );
 		}
 		else {
 			$url = Url::get( 'user_profile', array( 'page' => 'user', 'user' => $user->username ) );
 		}
 	?>
 
-	<li class="item clear">
-		<div class="clear">
-			<span class="checkbox pct5"><span><input type="checkbox" class="checkbox" name="checkbox_ids[<?php echo $user->id; ?>]" id="checkbox_ids[<?php echo $user->id; ?>]"></span></span>
-			<span class="user pct95"><a href="<?php echo $url ?>" title="<?php printf( _t('Open %s\'s user page'), $user->displayname ) ?>"><?php echo $user->displayname ?></a></span>
+	<li class="item">
+		<div>
+			<span class="checkbox"><span><input type="checkbox" class="checkbox select_user" value="<?php echo $user->id; ?>"></span></span>
+			<span class="user"><a href="<?php echo $url ?>" title="<?php printf( _t('Open %s\'s user page'), $user->displayname ) ?>"><?php echo $user->displayname ?></a></span>
 		</div>
 
-		<div class="clear">
-			<span class="nothing pct5">&nbsp;</span>
-			<span class="aka pct90">
+		<div>
+			<span class="nothing">&nbsp;</span>
+			<span class="aka">
 
 			<?php
 
@@ -28,8 +31,8 @@
 
 					$last_login_message = _t( 'was last seen %1$s at %2$s' );
 					$last_login_message = sprintf( $last_login_message,
-						'<strong>' . date( HabariDateTime::get_default_date_format(), strtotime( $user->info->authenticate_time ) ) . '</strong>',
-						'<strong>' . date( HabariDateTime::get_default_time_format(), strtotime( $user->info->authenticate_time ) ) . '</strong>'
+						'<strong>' . date( DateTime::get_default_date_format(), strtotime( $user->info->authenticate_time ) ) . '</strong>',
+						'<strong>' . date( DateTime::get_default_time_format(), strtotime( $user->info->authenticate_time ) ) . '</strong>'
 					);
 
 				}

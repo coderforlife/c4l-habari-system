@@ -1,11 +1,11 @@
+<?php namespace Habari; ?>
 <?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
 <?php include( 'header.php' ); ?>
-
-<div class="container dashboardinfo transparent">
+<div class="container">
 		<!--[if lte IE 6]>
 		<p><?php
 		
-			$ie6_age = HabariDateTime::difference( 'now', 'August 27, 2001' );
+			$ie6_age = DateTime::difference( 'now', 'August 27, 2001' );
 			
 			echo _t( "Oh, great! You're using IE6! I've finally found someone I can pawn this old betamax player off on!" ) . '<br />';
 			echo _t( "If you're reading this you're surfing using Internet Explorer 6, a browser that is %d %s old and cannot cope with the demands of the modern internet.", array( $ie6_age['y'], _n( 'year', 'years', $ie6_age['y'] ) ) ) . '<br />';
@@ -13,16 +13,15 @@
 			
 		?></p>
 		<![endif]-->
-
-		<p>
-		<?php
-		if ( isset($active_time) ) {
-			_e( '%s has been active for %s', array( Options::get('title'), $active_time->friendly( 3, false ) ) );
-		}
-		?>
-		<br>
-
-		<?php
+		<div id="welcome" class="sixteen columns alpha">
+			<p>
+			<?php
+			if ( isset($active_time) ) {
+				_e( '%s has been active for %s', array( Options::get('title'), $active_time->friendly( 3, false ) ) );
+			}
+			?>
+			</p>
+		<p><?php
 		$content_type_msg = array();
 		$user = User::identify();
 		if ( !empty( $stats['post_count'] ) ) {
@@ -42,7 +41,7 @@
 			$message = sprintf( _n( '%d comment', '%d comments', $stats['comment_count'] ), $stats['comment_count'] );
 			$perms = array( 'manage_all_comments' => true, 'manage_own_post_comments' => true );
 			if ( $user->can( 'manage_all_comments' ) ) {
-				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => Comment::STATUS_APPROVED ) ) ) . '">' . $message . '</a>';
+				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => 'approved' ) ) ) . '">' . $message . '</a>';
 			}
 			$comment_tag_msg[] = $message;
 		}
@@ -100,14 +99,14 @@
 		}
 		if ( $user->can_any( array( 'manage_all_comments' => true, 'manage_own_post_comments' => true ) ) ) {
 			if ( !empty(  $stats['unapproved_comment_count'] ) ) {
-				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => Comment::STATUS_UNAPPROVED ) ) ) . '">';
+				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => 'unapproved' ) ) ) . '">';
 				$message .= sprintf( _n( '%d comment awaiting approval', '%d comments awaiting approval', $stats['unapproved_comment_count'] ), $stats['unapproved_comment_count'] );
 				$message .= '</a>';
 				$message_bits[] = $message;
 			}
 
 			if ( !empty(  $stats['spam_comment_count'] ) && $user->info->dashboard_hide_spam_count != true ) {
-				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => Comment::STATUS_SPAM ) ) ) . '">';
+				$message = '<a href="' . Utils::htmlspecialchars( URL::get( 'admin', array( 'page' => 'comments', 'status' => 'spam' ) ) ) . '">';
 				$message .= sprintf( _n( '%d spam comment', '%d spam comments', $stats['spam_comment_count'] ), $stats['spam_comment_count'] );
 				$message .= '</a>';
 				$message_bits[] = $message;
@@ -117,7 +116,7 @@
 			_e('You have %s', array(Format::and_list( $message_bits)) );
 		}
 		?></p>
-
+		</div>
 		<?php
 			
 			if ( !empty( $updates ) ) {
@@ -134,7 +133,7 @@
 								foreach ( $beacon['updates'] as $u_version => $u ) {
 									
 									if ( !empty( $u['date'] ) ) {
-										$u_title = _t( '%1$s update released on %2$s: %3$s', array( MultiByte::ucfirst( $u['severity'] ), HabariDateTime::date_create( $u['date'] )->format( 'Y-m-d' ), Utils::htmlspecialchars( $u['text'] ) ) );
+										$u_title = _t( '%1$s update released on %2$s: %3$s', array( MultiByte::ucfirst( $u['severity'] ), DateTime::create( $u['date'] )->format( 'Y-m-d' ), Utils::htmlspecialchars( $u['text'] ) ) );
 									}
 									else {
 										$u_title = _t( '%1$s update: %3$s', array( MultiByte::ucfirst( $u['severity'] ), $u['date'], Utils::htmlspecialchars( $u['text'] ) ) );
@@ -181,7 +180,7 @@
  	$msg = str_replace( array( '[', ']' ), array( '<a href="' . Site::get_url('habari') . '/doc/manual/index.html" onclick="popUp(this.href);return false;" title="' . _t('Habari Manual') . '">', '</a>' ), $msg );
 ?>
 
-<div class="container dashboard transparent">
+<div class="container">
 	<div class="item">
 	<p><?php echo $msg; ?></p>
 	<p><?php _e( 'This message will disappear next time you visit.' ); ?></p>
@@ -190,7 +189,7 @@
 
 <?php endif; ?>
 
-<div class="container dashboard transparent">
+<div class="container dashboard">
 
 	<ul class="modules">
 		<?php echo $theme->display('dashboard_modules'); ?>

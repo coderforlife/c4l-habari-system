@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari Singleton class
  *
@@ -23,16 +25,10 @@ abstract class Singleton
 	 */
 	protected static function instance()
 	{
-		/*
-		 * It is important to note that subclasses MUST override this
-		 * method, as get_class will ALWAYS return 'Singleton' when
-		 * subclasses call this method through inheritance
-		 * return self::getInstanceOf( get_class() );
-		 */
-		trigger_error( _t( 'Not implemented: instance' ), E_USER_WARNING );
-		return null;
+		$class = get_called_class();
+		return self::getInstanceOf($class);
 	}
-	
+
 	/**
 	 * Returns the single shared static instance variable
 	 * which facilitates the Singleton pattern
@@ -40,6 +36,7 @@ abstract class Singleton
 	 * @note  each subclass should implement an instance() method which
 	 * passes the class name to the parent::getInstanceOf() function.
 	 *
+	 * @param string $class Name of the class to return the instance of
 	 * @return object instance
 	 */
 	/*

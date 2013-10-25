@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari AdminDashboardHandler Class
  * Handles dashboard-related actions in the admin
@@ -20,7 +22,7 @@ class AdminDashboardHandler extends AdminHandler
 		// Not sure how best to determine this yet, maybe set an option on install, maybe do this:
 		$firstpostdate = DB::get_value( 'SELECT min(pubdate) FROM {posts} WHERE status = ?', array( Post::status( 'published' ) ) );
 		if ( $firstpostdate ) {
-			$this->theme->active_time = HabariDateTime::date_create( $firstpostdate );
+			$this->theme->active_time = DateTime::create( $firstpostdate );
 		}
 
 		// check to see if we have updates to display
@@ -31,11 +33,11 @@ class AdminDashboardHandler extends AdminHandler
 		$this->theme->stats = array(
 			'author_count' => Users::get( array( 'count' => 1 ) ),
 			'post_count' => Posts::get( array( 'count' => 1, 'content_type' => Post::type( 'any' ), 'status' => Post::status( 'published' ) ) ),
-			'comment_count' => Comments::count_total( Comment::STATUS_APPROVED, false ),
+			'comment_count' => Comments::count_total( 'approved', false ),
 			'tag_count' => Tags::vocabulary()->count_total(),
 			'user_draft_count' => Posts::get( array( 'count' => 1, 'content_type' => Post::type( 'any' ), 'status' => Post::status( 'draft' ), 'user_id' => $user->id ) ),
-			'unapproved_comment_count' => User::identify()->can( 'manage_all_comments' ) ? Comments::count_total( Comment::STATUS_UNAPPROVED, false ) : Comments::count_by_author( User::identify()->id, Comment::STATUS_UNAPPROVED ),
-			'spam_comment_count' => $user->can( 'manage_all_comments' ) ? Comments::count_total( Comment::STATUS_SPAM, false ) : Comments::count_by_author( $user->id, Comment::STATUS_SPAM ),
+			'unapproved_comment_count' => User::identify()->can( 'manage_all_comments' ) ? Comments::count_total( 'unapproved', false ) : Comments::count_by_author( User::identify()->id, Comment::status('unapproved') ),
+			'spam_comment_count' => $user->can( 'manage_all_comments' ) ? Comments::count_total( 'spam', false ) : Comments::count_by_author( $user->id, Comment::status('spam') ),
 			'user_scheduled_count' => Posts::get( array( 'count' => 1, 'content_type' => Post::type( 'any' ), 'status' => Post::status( 'scheduled' ), 'user_id' => $user->id ) ),
 		);
 
@@ -68,12 +70,10 @@ class AdminDashboardHandler extends AdminHandler
 	 */
 	public function get_additem_form()
 	{
-		$additem_form = new FormUI( 'dash_additem' );
-		$additem_form->append( 'select', 'module', 'null:unused' );
-		$additem_form->module->options = Plugins::filter( 'dashboard_block_list', array() );
-		$additem_form->append( 'submit', 'submit', _t( '+' ) );
-		//$form->on_success( array( $this, 'dash_additem' ) );
-		$additem_form->properties['onsubmit'] = "dashboard.add(); return false;";
+		/** @var FormUI $additem_form */
+		$additem_form = FormUI::create( 'dash_additem' )->set_properties(array('onsubmit' => 'dashboard.add(); return false;'));
+		$additem_form->append( FormControlSelect::create('module')->set_options(Plugins::filter( 'dashboard_block_list', array() )) );
+		$additem_form->append( FormControlSubmit::create('submit')->set_caption(_t('+')));
 		$this->theme->additem_form = $additem_form->get();
 	}
 
@@ -126,18 +126,13 @@ class AdminDashboardHandler extends AdminHandler
 
 				/** Block $block */
 				$form = $block->get_form();
-				$form->_ajax = true;
-				$form->set_option( 'success_message', _t('Module Configuration Saved.')
-					. '<script type="text/javascript">window.setTimeout(function(){$(".form_message").fadeOut();}, 2000);</script>'
-				);
-				$control_id = new FormControlHidden('moduleid', 'null:null');
-				$control_id->value = $block->id;
-				$control_id->id = 'moduleid';
-				$form->append($control_id);
-				$control_action = new FormControlHidden('action', 'null:null');
-				$control_action->value = 'configModule';
-				$control_action->id = 'action';
-				$form->append($control_action);
+//				$form->_ajax = true;
+				// @todo There's got to be a better way
+				$form->set_settings( array( 'success_message' => '<p  class="form_message">' . _t('Module Configuration Saved.') . '</p>' . '<script type="text/javascript">window.setTimeout(function(){$(".form_message").fadeOut();}, 2000);</script>' ));
+
+				$form->append( FormControlHidden::create( 'moduleid', null, array( 'id' => 'moduleid' ) )->set_value( $block->id ) );
+				$form->append( FormControlHidden::create( 'action', null, array( 'id' => 'action' ) )->set_value( 'configModule' ) );
+
 				$form->out();
 				$form_id = $form->name;
 				exit;

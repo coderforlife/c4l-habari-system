@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari Stack Class
  *
@@ -294,6 +296,11 @@ class Stack
 		if ( !empty( $typename ) ) {
 			$props['media'] = $typename;
 		}
+		$wrapper = '%s';
+		if(isset($props['_wrapper'])) {
+			$wrapper = $props['_wrapper'];
+			unset($props['_wrapper']);
+		}
 
 		if ( self::is_url( $element ) ) {
 			$props = $props + array('rel' => 'stylesheet', 'href' => $element);
@@ -302,6 +309,7 @@ class Stack
 		else {
 			$output = sprintf( "<style %2\$s>%1\$s</style>\r\n", $element, Utils::html_attr($props) );
 		}
+		$output = sprintf($wrapper, $output);
 		return $output;
 	}
 	
@@ -357,12 +365,23 @@ class Stack
 		StackItem::register( 'media', Site::get_url( 'admin_theme', '/js/media.js' ) )->add_dependency( 'jquery' )->add_dependency( 'locale-js' );
 		StackItem::register( 'admin-js', Site::get_url( 'admin_theme', '/js/admin.js' ) )->add_dependency( 'jquery' )->add_dependency( 'locale-js' );
 		StackItem::register( 'crc32', Site::get_url( 'vendor', '/crc32.js' ), '1.2' );
+		StackItem::register( 'select2', Site::get_url( 'vendor', '/select2/select2.min.js' ), '3.3.2' )->add_dependency( 'jquery' );
+		StackItem::register( 'select2-debug', Site::get_url( 'vendor', '/select2/select2.js' ), '3.3.2' )->add_dependency( 'jquery' );
+		StackItem::register( 'underscore', Site::get_url( 'vendor', '/underscore-1.4.3.js' ), '1.3.2' );
+		StackItem::register( 'backbone', Site::get_url( 'vendor', '/backbone-0.9.10.js' ), '0.9.10' );
+		StackItem::register( 'visualsearch', Site::get_url( 'vendor', '/visualsearch/visualsearch.js' ), '0.4.0' )
+			->add_dependency( 'underscore' )
+			->add_dependency( 'jquery.ui' )
+			->add_dependency( 'backbone' );
 
 		StackItem::register( 'admin-css', array( Site::get_url( 'admin_theme', '/css/admin.css'), 'screen' ) );
 		StackItem::register( 'less', array( Site::get_url( 'vendor', '/less.min.js') ) );
 		StackItem::register( 'admin-less', array( Site::get_url( 'admin_theme', '/less/admin.less'), null, array('rel' => 'stylesheet/less') ) );
 		StackItem::register( 'jquery.ui-css', array( Site::get_url( 'admin_theme', '/css/jqueryui.css'), 'screen' ), '1.8.14' );
 		StackItem::register( 'humanmsg-css', array( Site::get_url( 'vendor', '/humanmsg/humanmsg.css'), 'screen' ), '1.0.habari' );
+		StackItem::register( 'select2-css', Site::get_url( 'vendor', '/select2/select2.css' ), '3.3.2' );
+		StackItem::register( 'visualsearch-css', array(Site::get_url( 'vendor', '/visualsearch/visualsearch.css' ), null, array('_wrapper' => '<!--[if lt IE 7]><!-->%s<!--<![endif]-->')), '0.4.0' );
+		StackItem::register( 'visualsearch-datauri-css', array(Site::get_url( 'vendor', '/visualsearch/visualsearch-datauri.css' ), null, array('_wrapper' => '<!--[if (!IE)|(gte IE 8)]><!-->%s<!--<![endif]-->')), '0.4.0' );
 	}
 
 }

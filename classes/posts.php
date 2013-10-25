@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari Posts Class
  *
@@ -23,7 +25,7 @@
  * @property-read array $preset The presets for this object
  *
  */
-class Posts extends ArrayObject implements IsContent
+class Posts extends \ArrayObject implements IsContent
 {
 	public $get_param_cache; // Stores info about the last set of data fetched that was not a single value
 
@@ -36,7 +38,8 @@ class Posts extends ArrayObject implements IsContent
 	 * global $url object for the request.  The difference would occur when
 	 * the data returned doesn't necessarily match the request, such as when
 	 * several posts are requested, but only one is available to return.
-	 * @param string The name of the property to return.
+	 * @param string $name The name of the property to return.
+	 * @return array|bool|mixed The requested property value
 	 */
 	public function __get( $name )
 	{
@@ -92,6 +95,7 @@ class Posts extends ArrayObject implements IsContent
 	 *     - vocabulary_name:not:term_display => a vocabulary name and term display pair or array of vocabulary name and term display pairs, none of which can be associated with the posts
 	 *     - vocabulary_name:all:term => a vocabulary name and term slug pair or array of vocabulary name and term slug pairs, all of which must be associated with the posts
 	 *     - vocabulary_name:all:term_display => a vocabulary name and term display pair or array of vocabulary name and term display pairs, all of which must be associated with the posts
+	 * - on_query_built => a closure that accepts a Query as a parameter, allowing a plugin to alter the Query for this request directly
 	 * - limit => the maximum number of posts to return, implicitly set for many queries
 	 * - nolimit => do not implicitly set limit
 	 * - offset => amount by which to offset returned posts, used in conjunction with limit
@@ -113,6 +117,8 @@ class Posts extends ArrayObject implements IsContent
 	{
 		static $presets;
 
+		$select_distinct = array();
+
 		// If $paramarray is a string, use it as a Preset
 		if(is_string($paramarray)) {
 			$paramarray = array('preset' => $paramarray);
@@ -120,7 +126,7 @@ class Posts extends ArrayObject implements IsContent
 
 		// If $paramarray is a querystring, convert it to an array
 		$paramarray = Utils::get_params( $paramarray );
-		if($paramarray instanceof ArrayIterator) {
+		if($paramarray instanceof \ArrayIterator) {
 			$paramarray = $paramarray->getArrayCopy();
 		}
 
@@ -130,16 +136,7 @@ class Posts extends ArrayObject implements IsContent
 			if(!isset($presets)) {
 				$presets = Plugins::filter('posts_get_all_presets', $presets, $paramarray['preset']);
 			}
-			$paramarray['preset'] = Utils::single_array($paramarray['preset']);
-			foreach($paramarray['preset'] as $presetname => $fallbackpreset) {
-				if(isset($presets[$fallbackpreset])) {
-					$preset = Plugins::filter('posts_get_update_preset', $presets[$fallbackpreset], $presetname, $paramarray);
-					if(is_array( $preset ) || $preset instanceof ArrayObject || $preset instanceof ArrayIterator) {
-						$paramarray = array_merge($preset, $paramarray);
-						break;
-					}
-				}
-			}
+			$paramarray = Posts::merge_presets($paramarray, $presets);
 		}
 
 		// let plugins alter the param array before we use it. could be useful for modifying search results, etc.
@@ -168,9 +165,6 @@ class Posts extends ArrayObject implements IsContent
 			$select_ary[$fielddata['alias']] = "{$fielddata['table']}.{$fielddata['field']} AS {$fielddata['alias']}";
 			$select_distinct[$fielddata['alias']] = "{$fielddata['table']}.{$fielddata['field']}";
 		}
-
-		// Default parameters
-		$orderby = 'pubdate DESC';
 
 		// Define the WHERE sets to process and OR in the final SQL statement
 		if ( isset( $paramarray['where'] ) && is_array( $paramarray['where'] ) ) {
@@ -201,15 +195,15 @@ class Posts extends ArrayObject implements IsContent
 				$where->in('{posts}.id', $paramset['not:id'], 'posts_not_id', 'intval', false);
 			}
 
-			if ( isset( $paramset['status'] ) && ( $paramset['status'] != 'any' ) && ( 0 !== $paramset['status'] ) ) {
+			if ( isset( $paramset['status'] ) && !self::empty_param( $paramset['status'] ) ) {
 				$where->in('{posts}.status', $paramset['status'], 'posts_status', function($a) {return Post::status( $a );} );
 			}
 
-			if ( isset( $paramset['not:status'] ) && ( $paramset['not:status'] != 'any' ) && ( 0 !== $paramset['not:status'] ) ) {
+			if ( isset( $paramset['not:status'] ) && !self::empty_param( $paramset['not:status'] ) ) {
 				$where->in('{posts}.status', $paramset['not:status'], 'posts_not_status', function($a) {return Post::status( $a );}, null, false );
 			}
 
-			if ( isset( $paramset['content_type'] ) && ( $paramset['content_type'] != 'any' ) && ( 0 !== $paramset['content_type'] ) ) {
+			if ( isset( $paramset['content_type'] ) && !self::empty_param( $paramset['content_type'] ) ) {
 				$where->in('{posts}.content_type', $paramset['content_type'], 'posts_content_type', function($a) {return Post::type( $a );} );
 			}
 			if ( isset( $paramset['not:content_type'] ) ) {
@@ -264,7 +258,7 @@ class Posts extends ArrayObject implements IsContent
 
 						// this causes no posts to match if combined with 'any' below and should be re-thought... somehow
 						$groupby = implode( ',', $select_distinct );
-						$having = 'count(*) = ' . count( $terms );
+						$having = 'count(*) = ' . count( $terms );  // @todo this seems like it's in the wrong place
 
 					}
 				}
@@ -294,7 +288,7 @@ class Posts extends ArrayObject implements IsContent
 							$andwhere->in( $join_group . "_t.{$field}", $terms );
 							$andwhere->in( $join_group . '_ot.object_type_id', $object_id );
 						}
-						$orwhere->add( $andwhere );
+						$orwhere->add( $andwhere );  // @todo this seems like it's in the wrong place
 
 					}
 					$where->add( $orwhere );
@@ -484,26 +478,26 @@ class Posts extends ArrayObject implements IsContent
 			 */
 			if ( isset( $paramset['day'] ) && isset( $paramset['month'] ) && isset( $paramset['year'] ) ) {
 				$start_date = sprintf( '%d-%02d-%02d', $paramset['year'], $paramset['month'], $paramset['day'] );
-				$start_date = HabariDateTime::date_create( $start_date );
+				$start_date = DateTime::create( $start_date );
 				$where->add('pubdate BETWEEN :start_date AND :end_date', array('start_date' => $start_date->sql, 'end_date' => $start_date->modify( '+1 day -1 second' )->sql));
 			}
 			elseif ( isset( $paramset['month'] ) && isset( $paramset['year'] ) ) {
 				$start_date = sprintf( '%d-%02d-%02d', $paramset['year'], $paramset['month'], 1 );
-				$start_date = HabariDateTime::date_create( $start_date );
+				$start_date = DateTime::create( $start_date );
 				$where->add('pubdate BETWEEN :start_date AND :end_date', array('start_date' => $start_date->sql, 'end_date' => $start_date->modify( '+1 month -1 second' )->sql));
 			}
 			elseif ( isset( $paramset['year'] ) ) {
 				$start_date = sprintf( '%d-%02d-%02d', $paramset['year'], 1, 1 );
-				$start_date = HabariDateTime::date_create( $start_date );
+				$start_date = DateTime::create( $start_date );
 				$where->add('pubdate BETWEEN :start_date AND :end_date', array('start_date' => $start_date->sql, 'end_date' => $start_date->modify( '+1 year -1 second' )->sql));
 			}
 
 			if ( isset( $paramset['after'] ) ) {
-				$where->add('pubdate > :after_date', array('after_date' => HabariDateTime::date_create( $paramset['after'] )->sql));
+				$where->add('pubdate > :after_date', array('after_date' => DateTime::create( $paramset['after'] )->sql));
 			}
 
 			if ( isset( $paramset['before'] ) ) {
-				$where->add('pubdate < :before_date', array('before_date' => HabariDateTime::date_create( $paramset['before'] )->sql));
+				$where->add('pubdate < :before_date', array('before_date' => DateTime::create( $paramset['before'] )->sql));
 			}
 
 			// Concatenate the WHERE clauses
@@ -632,23 +626,8 @@ class Posts extends ArrayObject implements IsContent
 			$$key = $value;
 		}
 
-		// Define the LIMIT if it does not exist, unless specific posts are requested or we're getting the monthly counts
-		if ( !isset( $limit ) && !isset( $paramset['id'] ) && !isset( $paramset['slug'] ) && !isset( $paramset['month_cts'] ) ) {
-			$limit = Options::get( 'pagination' ) ? (int) Options::get( 'pagination' ) : 5;
-		}
-		elseif ( !isset( $limit ) ) {
-			$selected_posts = 0;
-			if ( isset( $paramset['id'] ) ) {
-				$selected_posts += count( Utils::single_array( $paramset['id'] ) );
-			}
-			if ( isset( $paramset['slug'] ) ) {
-				$selected_posts += count( Utils::single_array( $paramset['slug'] ) );
-			}
-			$limit = $selected_posts > 0 ? $selected_posts : '';
-		}
-
-		// Calculate the OFFSET based on the page number
-		if ( isset( $page ) && is_numeric( $page ) && !isset( $paramset['offset'] ) ) {
+		// Calculate the OFFSET based on the page number. Requires a limit.
+		if ( isset( $page ) && is_numeric( $page ) && !isset( $paramset['offset'] ) && isset( $limit ) ) {
 			$offset = ( intval( $page ) - 1 ) * intval( $limit );
 		}
 
@@ -749,7 +728,7 @@ class Posts extends ArrayObject implements IsContent
 		/**
 		 * Execute the SQL statement using the PDO extension
 		 */
-		DB::set_fetch_mode( PDO::FETCH_CLASS );
+		DB::set_fetch_mode( \PDO::FETCH_CLASS );
 		$fetch_class = 'Post';
 		if(isset($paramarray['fetch_class'])) {
 			$fetch_class = $paramarray['fetch_class'];
@@ -774,6 +753,67 @@ class Posts extends ArrayObject implements IsContent
 			$return_value = new $c( $results );
 			$return_value->get_param_cache = $paramarray;
 			return $return_value;
+		}
+	}
+
+
+	/**
+	 * Accept a parameter array for Posts::get() with presets, and return an array with all defined parameters from those presets
+	 * @param array $paramarray An array of parameters to Posts::get that may contain presets
+	 * @param array $presets a list of presets, keyed by preset name, each an array of parameters that define the preset
+	 * @return array The processed array, including all original presets and all newly added recursive presets and parameters
+	 */
+	public static function merge_presets($paramarray, $presets) {
+		if(isset($paramarray['preset'])) {
+			// Get the preset from the paramarray.
+			$requested_presets = Utils::single_array($paramarray['preset']);
+			unset($paramarray['preset']);
+
+			// Get the previously processed presets and remove them from the presets requested
+			$processed_presets = isset($paramarray['_presets']) ? array_keys($paramarray['_presets']) : array();
+			$requested_presets = array_diff($requested_presets, $processed_presets);
+
+			// Process fallbacks (in the simplest case, this will just iterate once - for the requested fallback-less preset)
+			foreach($requested_presets as $requested_preset) {
+				if(isset($presets[$requested_preset])) {
+					// We found one that exists, let plugins filter it and then merge it with our paramarray
+					$preset = Plugins::filter('posts_get_update_preset', $presets[$requested_preset], $requested_preset, $paramarray);
+					if(is_array($preset) || $preset instanceof \ArrayObject || $preset instanceof \ArrayIterator) {
+						$preset = new SuperGlobal($preset);
+						// This merge order ensures that the outside object has precedence
+						$paramarray = $preset->merge($paramarray)->getArrayCopy();
+						// Save the preset as "processed"
+						$paramarray['_presets'][$requested_preset] = true;
+						// We might have retrieved new presets to use. Do it again!
+						$paramarray = Posts::merge_presets($paramarray, $presets);
+					}
+				}
+				else {
+					// Save the preset as "tried to process but didn't"
+					$paramarray['_presets'][$requested_preset] = false;
+				}
+			}
+
+			// Restore the original requested preset to the paramarray
+			$paramarray['preset'] = $requested_presets;
+		}
+
+		return $paramarray;
+	}
+
+	/**
+	 * Determine whether a parameter supplied to Posts::get() is empty and should be ignored based on its value being comprised only of empty values
+	 * @param string|array $param The parameter values supplied to Posts::get()
+	 * @param array $empty_values An array defining what values are considered empty and ignorable
+	 * @return bool True if the parameter values contain only empty values, false otherwise
+	 */
+	public static function empty_param($param, $empty_values = array(0, 'any')) {
+		if(is_array($param)) {
+			$intersection = array_intersect($param, $empty_values);
+			return count($intersection) == count($param);
+		}
+		else {
+			return in_array($param, $empty_values, true);
 		}
 	}
 
@@ -804,7 +844,7 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * function by_status
 	 * select all posts of a given status
-	 * @param int a status value
+	 * @param int $status a status value
 	 * @return array an array of Comment objects with the same status
 	 */
 	public static function by_status ( $status )
@@ -816,7 +856,7 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * function by_slug
 	 * select all post content by slug
-	 * @param string a post slug
+	 * @param string $slug a post slug
 	 * @return array an array of post content
 	 */
 	public static function by_slug ( $slug = '' )
@@ -827,7 +867,7 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * static count_total
 	 * return a count for the total number of posts
-	 * @param mixed a status value to filter posts by; if false, then no filtering will be performed
+	 * @param mixed $status a status value to filter posts by; if false, then no filtering will be performed
 	 * @return int the number of posts of specified type ( published or draft )
 	 */
 	public static function count_total( $status = false )
@@ -862,8 +902,8 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * static count_by_author
 	 * return a count of the number of posts by the specified author
-	 * @param int an author ID
-	 * @param mixed a status value to filter posts by; if false, then no filtering will be performed
+	 * @param int $user_id an author ID
+	 * @param mixed $status a status value to filter posts by; if false, then no filtering will be performed
 	 * @return int the number of posts by the specified author
 	 */
 	public static function count_by_author( $user_id, $status = false )
@@ -878,8 +918,8 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * static count_by_tag
 	 * return a count of the number of posts with the assigned tag
-	 * @param string A tag
-	 * @param mixed a status value to filter posts by; if false, then no filtering will be performed
+	 * @param string $tag A tag
+	 * @param mixed $status a status value to filter posts by; if false, then no filtering will be performed
 	 * @return int the number of posts with the specified tag
 	 */
 	public static function count_by_tag( $tag, $status = false )
@@ -893,8 +933,8 @@ class Posts extends ArrayObject implements IsContent
 
 	/**
 	 * Reassigns the author of a specified set of posts
-	 * @param mixed a user ID or name
-	 * @param mixed an array of post IDs, an array of Post objects, or an instance of Posts
+	 * @param int|User|string $user a user ID or name
+	 * @param array|Posts $posts an array of post IDs, an array of Post objects, or an instance of Posts
 	 * @return bool Whether the rename operation succeeded or not
 	 */
 	public static function reassign( $user, $posts )
@@ -940,11 +980,9 @@ class Posts extends ArrayObject implements IsContent
 	}
 
 	/**
-	 * function publish_scheduled_posts
-	 *
-	 * Callback function to publish scheduled posts
+	 * Callback function to publish scheduled posts, executed on cron
 	 */
-	public static function publish_scheduled_posts( $params )
+	public static function publish_scheduled_posts( )
 	{
 		$select = array();
 		// Default fields to select, everything by default
@@ -952,7 +990,8 @@ class Posts extends ArrayObject implements IsContent
 			$select[$field] = "{posts}.$field AS $field";
 		}
 		$select = implode( ',', $select );
-		$posts = DB::get_results( 'SELECT ' . $select . ' FROM {posts} WHERE {posts}.status = ? AND {posts}.pubdate <= ? ORDER BY {posts}.pubdate DESC', array( Post::status( 'scheduled' ), HabariDateTime::date_create() ), 'Post' );
+		$posts = DB::get_results( 'SELECT ' . $select . ' FROM {posts} WHERE {posts}.status = ? AND {posts}.pubdate <= ? ORDER BY {posts}.pubdate DESC', array( Post::status( 'scheduled' ), DateTime::create() ), 'Post' );
+		/** @var Post $post */
 		foreach ( $posts as $post ) {
 			$post->publish();
 		}
@@ -972,32 +1011,29 @@ class Posts extends ArrayObject implements IsContent
 
 		CronTab::delete_cronjob( 'publish_scheduled_posts' );
 		if ( $min_time ) {
-			CronTab::add_single_cron( 'publish_scheduled_posts', array( 'Posts', 'publish_scheduled_posts' ), $min_time, 'Next run: ' . HabariDateTime::date_create( $min_time )->get( 'c' ) );
+			CronTab::add_single_cron( 'publish_scheduled_posts', Method::create( '\Habari\Posts', 'publish_scheduled_posts' ), $min_time, 'Next run: ' . DateTime::create( $min_time )->get( 'c' ) );
 		}
 	}
 
 	/**
 	 * Returns an ascending post
 	 *
-	 * @param The Post from which to start
-	 * @param The params by which to work out what is the next ascending post
+	 * @param Post $post The Post from which to start
+	 * @param array $userparams The params by which to work out what is the next ascending post
 	 * @return Post The ascending post
 	 */
-	public static function ascend( $post, $params = null )
+	public static function ascend( $post, $userparams = null )
 	{
 		$posts = null;
-		$ascend = false;
-		if ( !$params ) {
-			$params = array( 'where' => "pubdate >= '{$post->pubdate->sql}' AND content_type = {$post->content_type} AND status = {$post->status}", 'limit' => 2, 'orderby' => 'pubdate ASC' );
-			$posts = Posts::get( $params );
-		}
-		elseif ( $params instanceof Posts ) {
-			$posts = $params;
+		if ( $userparams instanceof Posts ) {
+			$posts = $userparams;
 		}
 		else {
-			if ( !array_key_exists( 'orderby', $params ) ) {
-				$params['orderby'] = 'pubdate ASC';
+			$defaultparams = array( 'where' => "pubdate >= '{$post->pubdate->sql}'", 'content_type' => $post->content_type, 'status' => $post->status, 'limit' => 2, 'orderby' => 'pubdate ASC' );
+			if($userparams == null) {
+				$userparams = array();
 			}
+			$params = array_merge( $defaultparams, $userparams );
 			$posts = Posts::get( $params );
 		}
 		if($posts) {
@@ -1015,25 +1051,22 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * Returns a descending post
 	 *
-	 * @param The Post from which to start
-	 * @param The params by which to work out what is the next descending post
+	 * @param Post $post The Post from which to start
+	 * @param array $userparams The params by which to work out what is the next descending post
 	 * @return Post The descending post
 	 */
-	public static function descend( $post, $params = null )
+	public static function descend( $post, $userparams = null )
 	{
 		$posts = null;
-		$descend = false;
-		if ( !$params ) {
-			$params = array( 'where' => "pubdate <= '{$post->pubdate->sql}' AND content_type = {$post->content_type} AND status = {$post->status}", 'limit' => 2, 'orderby' => 'pubdate DESC' );
-			$posts = Posts::get( $params );
-		}
-		elseif ( $params instanceof Posts ) {
-			$posts = array_reverse( $params );
+		if ( $userparams instanceof Posts ) {
+			$posts = $userparams;
 		}
 		else {
-			if ( !array_key_exists( 'orderby', $params ) ) {
-				$params['orderby'] = 'pubdate DESC';
+			$defaultparams = array( 'where' => "pubdate <= '{$post->pubdate->sql}'", 'content_type' => $post->content_type, 'status' => $post->status, 'limit' => 2, 'orderby' => 'pubdate DESC' );
+			if($userparams == null) {
+				$userparams = array();
 			}
+			$params = array_merge( $defaultparams, $userparams );
 			$posts = Posts::get( $params );
 		}
 		if($posts) {
@@ -1070,8 +1103,6 @@ class Posts extends ArrayObject implements IsContent
 	 */
 	public static function search_to_get( $search_string )
 	{
-		// if adding to this array, make sure you update the consequences of a search on this below in the switch.
-		$keywords = array( 'author' => 1, 'status' => 1, 'type' => 1, 'tag' => 1, 'info' => 1 );
 		$statuses = Post::list_post_statuses();
 		$types = Post::list_active_post_types();
 		$arguments = array(
@@ -1081,7 +1112,6 @@ class Posts extends ArrayObject implements IsContent
 			'vocabulary' => array(),
 			'info' => array(),
 		);
-		$criteria = '';
 
 		// this says, find stuff that has the keyword at the start, and then some term straight after.
 		// the terms should have no whitespace, or if it does, be ' delimited.
@@ -1158,9 +1188,12 @@ class Posts extends ArrayObject implements IsContent
 	/**
 	 * Check if the requested post is of the type specified, to see if a rewrite rule matches.
 	 *
+	 * @param RewriteRule $rule The rewrite rule we're matching against
+	 * @param string $stub The URL stub request that triggered the rule
+	 * @param array $parameters The included parameters on this rule
 	 * @return Boolean Whether the requested post matches the content type of the rule.
 	 */
-	public static function rewrite_match_type( $rule, $slug, $parameters )
+	public static function rewrite_match_type( $rule, $stub, $parameters )
 	{
 		$args = $rule->named_arg_values;
 		$args['count'] = true;
@@ -1190,6 +1223,7 @@ class Posts extends ArrayObject implements IsContent
 	 * Accepts a set of term query qualifiers and converts it into a multi-dimensional array
 	 * of vocabulary (ie: tags), matching method (any, all, not), matching field (id, term, term_display), and list of terms
 	 *
+	 * @param array $params An array of parameters provided to Posts::get() as a vocabulary criteria
 	 * @return array An array of parsed term-matching conditions
 	 */
 	private static function vocabulary_params( $params )
@@ -1252,7 +1286,7 @@ class Posts extends ArrayObject implements IsContent
 	 */
 	public static function __static()
 	{
-		Pluggable::load_hooks('Posts');
+		Pluggable::load_hooks(__CLASS__);
 	}
 
 	/**
@@ -1263,10 +1297,21 @@ class Posts extends ArrayObject implements IsContent
 	 */
 	public static function filter_posts_get_all_presets($presets)
 	{
+		// Presets used for navigation.
 		$presets['page_list'] = array( 'content_type' => 'page', 'status' => 'published', 'nolimit' => true );
 		$presets['asides'] = array( 'vocabulary' => array( 'tags:term' => 'aside' ), 'limit' => 5 );
-		$presets['home'] = array( 'content_type' => Post::type( 'entry' ), 'status' => Post::status( 'published' ), 'limit' => Options::get('pagination', 5) );
-
+		// Flow is the base preset all other presets should build on top of.
+		$presets['flow'] = array( 'content_type' => Post::type( 'entry' ), 'status' => Post::status( 'published' ), 'limit' => Options::get( 'pagination', 5), 'orderby' => 'pubdate DESC' );
+		// This is used only for a site's home page.
+		$presets['home'] = array( 'preset' => 'flow' );
+		// All pages that follow use this one:
+		$presets['page'] = array( 'preset' => 'flow' );
+		// Provide presets for all other pages, just to allow plugins to play with them.
+		$presets['tag'] = array( 'preset' => 'page' );
+		$presets['date'] = array( 'preset' => 'page' );
+		$presets['search'] = array( 'preset' => 'page' );
+		// Preset for default admin post lists
+		$presets['admin'] = array( 'limit' => 20, 'user_id' => 0, 'orderby' => 'pubdate DESC' );
 		return $presets;
 	}
 
@@ -1276,6 +1321,7 @@ class Posts extends ArrayObject implements IsContent
 	 */
 	public function delete()
 	{
+		/** @var Post $post */
 		foreach( $this as $post ) {
 			$post->delete();
 		}
@@ -1287,7 +1333,7 @@ class Posts extends ArrayObject implements IsContent
 	 */
 	public function to_json()
 	{
-		$posts = array_map(function($e){return $e->to_json();}, $this->getArrayCopy());
+		$posts = array_map(function(Post $e){return $e->to_json();}, $this->getArrayCopy());
 		return '[' . implode(',', $posts) . ']';
 	}
 }

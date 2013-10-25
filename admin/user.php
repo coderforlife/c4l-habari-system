@@ -1,18 +1,21 @@
-<?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
+<?php
+namespace Habari;
+if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); }
+?>
 <?php include('header.php');?>
 
 <div class="container navigation">
-	<span class="pct40">
+	<span class="columns seven">
 		<form>
 		<select class="navigationdropdown" onChange="navigationDropdown.filter();" name="navigationdropdown">
 			<option value="all"><?php _e('All options'); ?></option>
 		</select>
 		</form>
 	</span>
-	<span class="or pct20">
+	<span class="columns one or">
 		<?php _e('or'); ?>
 	</span>
-	<span class="pct40">
+	<span class="columns eight">
 		<input id="search" type="search" placeholder="<?php _e('search users'); ?>" autofocus="autofocus">
 	</span>
 </div>

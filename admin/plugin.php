@@ -1,7 +1,16 @@
+<?php
+namespace Habari;
+/**
+ * @var string $helpaction
+ * @var array $plugin
+ * @var Theme $theme
+ * @var string $configure
+ * @var string $configaction
+ */
+?>
 <?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
 <?php if ( $plugin['debug'] ): ?>
-
-<div class="item plugin clear">
+<div class="item plugin columns sixteen">
 	<div class="head">
 		<p><?php printf( _t('The plugin file %s had syntax errors and could not load.'), $plugin['file'] ); ?></p>
 		<div style="display:none;" id="error_<?php echo $plugin['plugin_id']; ?>"><?php echo $plugin['error']; ?></div>
@@ -10,29 +19,24 @@
 			</ul>
 	</div>
 </div>
-
 <?php elseif ( $plugin['info'] == 'legacy' ): ?>
-
-<div class="item plugin clear">
+<div class="item plugin">
 	<div class="head">
 		<p><?php printf( _t('The plugin file %s is a legacy plugin, and does not include an XML info file.'), $plugin['file'] ); ?></p>
 	</div>
 </div>
-
 <?php elseif ( $plugin['info'] == 'broken' ): ?>
-
-<div class="item plugin clear">
+<div class="item plugin">
 	<div class="head">
 		<p><?php echo _t('The XML file for the plugin %s contained errors and could not be loaded.', array( basename( $plugin['file'] ) ) ); ?></p>
 	</div>
 </div>
-
 <?php else: ?>
-
-<div class="item plugin clear" id="plugin_<?php echo $plugin['plugin_id']; ?>">
+<div class="item plugin" id="plugin_<?php echo $plugin['plugin_id']; ?>">
 	<div class="head">
+		<div class="title">
 		<a href="<?php echo $plugin['info']->url; ?>" class="plugin"><?php echo $plugin['info']->name; ?> <span class="version"><?php echo $plugin['info']->version; ?></span></a>
-		<span class="dim"><?php _e('by'); ?></span>
+		<?php _e('by'); ?>
 
 		<?php
 		$authors = array();
@@ -40,25 +44,35 @@
 			$authors[] = isset( $author['url'] ) ? '<a href="' . $author['url'] . '">' . $author . '</a>' : $author;
 		}
 		// @locale The string used between the last two items in the list of authors of a plugin on the admin page (one, two, three *and* four).
-		echo Format::and_list( $authors, '<span class="dim">, </span>', '<span class="dim">' . _t( ' and ' ) . '</span>');
+		echo Format::and_list( $authors,  _t( ' and ' ));
 		?>
+		</div>
+		<?php if ( $plugin['core'] ): ?>
+			<span class="core"><?php _e('core'); ?></span>
+		<?php endif; ?>
 
 		<?php if ( isset($plugin['help']) ): ?>
 		<a class="help" href="<?php echo $plugin['help']['url']; ?>">?</a>
 		<?php endif; ?>
 
-		<ul class="dropbutton">
-			<?php foreach ( $plugin['actions'] as $plugin_action => $action ) : ?>
-			<li><a href="<?php echo Utils::htmlspecialchars( $action['url'] ); ?>"><?php echo $action['caption']; ?></a></li>
-			<?php endforeach; ?>
-		</ul>
+		<?php
+		/** @var FormControlDropbutton $dbtn */
+		if(count($plugin['actions']) > 0):
+			$dbtn = FormControlDropbutton::create('actions');
+			foreach($plugin['actions'] as $key => $data) {
+				$dbtn->append(FormControlSubmit::create($key)->set_url($data['href'])->set_caption($data['caption']));
+			}
+			echo $dbtn->pre_out();
+			echo $dbtn->get($theme);
+		endif;
+		?>
 
 		<?php if ( isset($plugin['update']) ): ?>
 		<ul class="dropbutton alert">
 			<li><a href="#"><?php _e('v1.1 Update Available Now'); ?></a></li>
 		</ul>
 		<?php endif; ?>
-		
+
 		<p class="description"><?php echo $plugin['info']->description; ?></p>
 
 	</div>
@@ -108,16 +122,16 @@
 		elseif ( isset($plugin['info']->help) ) {
 			foreach ( $plugin['info']->help as $help ) {
 				if ( (string)$help['name'] == '' ) {
-					echo  '<div class="help">' . $help->value . '</div>';
+					echo  '<div class="help">' . Pluggable::get_xml_text($plugin['info']['filename'], $help) . '</div>';
 				}
 			}
 		} ?>
 	</div>
 
-	<?php if ( isset($this->engine_vars['configure']) && ($configure == $plugin['plugin_id']) ): ?>
+	<?php if ( isset($config) && ($config == true)): ?>
 	<div id="pluginconfigure">
 		<?php Plugins::plugin_ui( $configure, $configaction ); ?>
-		<a class="link_as_button" href="<?php URL::out( 'admin', 'page=plugins' ); ?>"><?php _e('Close'); ?></a>
+		<a class="link_as_button" href="<?php URL::out( 'display_plugins'); ?>"><?php _e('Close'); ?></a>
 	</div>
 	<?php endif; ?>
 

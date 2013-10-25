@@ -17,6 +17,16 @@ CREATE TABLE {$prefix}posts (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS slug ON {$prefix}posts(slug);
 
+CREATE TABLE {$prefix}revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  post_id INTEGER NOT NULL,
+  change_field VARCHAR(255) NOT NULL,
+  old_value TEXT DEFAULT NULL,
+  user_id INTEGER DEFAULT NULL,
+  change_date INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS revisions_data ON {$prefix}revisions(post_id, change_date, change_field);
+
 CREATE TABLE {$prefix}postinfo  (
   post_id INTEGER NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -74,6 +84,18 @@ CREATE TABLE {$prefix}comments (
 );
 CREATE INDEX IF NOT EXISTS comments_post_id ON {$prefix}comments(post_id);
 
+CREATE TABLE {$prefix}commenttype (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  active SMALLINTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE {$prefix}commentstatus (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  internal SMALLINTEGER NOT NULL
+);
+
 CREATE TABLE {$prefix}commentinfo (
   comment_id INTEGER NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -119,7 +141,7 @@ CREATE TABLE {$prefix}log (
   type_id INTEGER NOT NULL,
   severity_id TINYINT NOT NULL,
   message VARCHAR(255) NOT NULL,
-  data BLOB NULL,
+  data TEXT NULL,
   timestamp INTEGER NOT NULL,
   ip VARCHAR(45) NOT NULL
 );

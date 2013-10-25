@@ -195,6 +195,7 @@ var itemManage = {
 
 		itemManage.initItems();
 
+/*
 		$('.item.controls input[type=checkbox]').change(function () {
 			if ($('.item.controls label.selectedtext').hasClass('all')) {
 				itemManage.uncheckAll();
@@ -202,6 +203,7 @@ var itemManage = {
 				itemManage.checkAll();
 			}
 		});
+*/
 
 		/* for all manage pages except for comments, add an ajax call to the
 		 * delete button
@@ -218,6 +220,7 @@ var itemManage = {
 		});
 	},
 	initItems: function() {
+/*
 		$('.item:not(.ignore) .checkbox input[type=checkbox]').change(function () {
 			itemManage.changeItem();
 		});
@@ -232,6 +235,7 @@ var itemManage = {
 			itemManage.expand($(this).parent());
 		});
 		itemManage.changeItem();
+*/
 	},
 	expand: function(item) {
 		$('.item').removeClass('expanded');
@@ -479,22 +483,6 @@ var helpToggler = {
 	}
 }
 
-// Plugin Management
-var pluginManage = {
-	init: function() {
-		// Return if we're not on the plugins page
-		if (!$('.page-plugins').length) {return;}
-
-		$('.plugins .item').hover( function() {
-			$(this).find('#pluginconfigure:visible').parent().css('background', '#FAFAFA');
-		}, function() {
-			$(this).find('#pluginconfigure:visible').parent().css('background', '');
-	  	});
-	
-		helpToggler.init();
-	}
-};
-
 // Theme Management
 var themeManage = {
 	area_drop_options: {
@@ -523,7 +511,7 @@ var themeManage = {
 			block.find('.instance_controls,small').remove();
 			block.append('<div class="close">&nbsp;</div><div class="handle">&nbsp;</div>');
 			// Add the block to the target area
-			var target = $('#'+($(this).attr('class').match(/target_(\w+)/)[1]));
+			var target = $('#'+($(this).attr('class').match(/target_([\w-]+)/)[1]));
 			target.append(block);
 			themeManage.refresh_areas();
 			return false;
@@ -610,7 +598,7 @@ var themeManage = {
 		});
 		habari_ajax.post(
 			habari.url.ajaxSaveAreas,
-			{area_blocks:output, scope:$('#scope_id').val()},
+			{area_blocks:output, scope:$('#scope_id').val(), changed:themeManage.changed()},
 			{'block_areas': '#scope_container'},
 			// Can't simply refresh the sortable because we've reloaded the element
 			function(data) {
@@ -1178,40 +1166,6 @@ var navigationDropdown = {
 };
 
 
-// DROPBUTTON
-var dropButton = {
-	init: function() {
-		var currentDropButton = '';
-		$('.dropbutton').hover( function(e) {
-			dropButton.currentDropButton = $(e.currentTarget);
-
-			// Clear any timers, let the button know it's being hovered
-			clearTimeout(dropButton.t1);
-			dropButton.showMenu();
-		}, function(e) {
-			// After mouse out, wait, then close
-			dropButton.t1 = setTimeout(dropButton.hideMenu, 500);
-		});
-	},
-
-	showMenu: function(element) {
-		// Close all open dropbuttons
-		$('.dropbutton').removeClass('hovering');
-
-		// Open this dropbutton
-		$(dropButton.currentDropButton).addClass('hovering');
-	},
-
-	hideMenu: function(element) {
-		// Fade out and close dropbutton
-		$(dropButton.currentDropButton).removeClass('hovering');
-
-		$('.carrot').removeClass('carrot');
-	}
-};
-
-
-
 // THE MENU
 var theMenu = {
 	init: function() {
@@ -1637,17 +1591,16 @@ $(window).load( function() {
 
 	// Icons only for thin-width clients -- Must be run here to work properly in Safari
 	if ($('#title').width() < ($('#mediatabs li').length * $('#mediatabs li').width())) {
-		$('#mediatabs').addClass('iconify');
+		//$('#mediatabs').addClass('iconify');
 	}
 });
 
 $(document).ready(function(){
 	// Initialize all sub-systems
-	dropButton.init();
 	theMenu.init();
 	dashboard.init();
 	itemManage.init();
-	pluginManage.init();
+	helpToggler.init();
 	themeManage.init();
 	liveSearch.init();
 	findChildren();
@@ -1738,22 +1691,3 @@ $(document).ready(function(){
 		themeinfo.toggle();
 	});
 });
-
-function resetTags() {
-	var current = $('#tags').val();
-
-	$('#tag-list li').each(function(){
-		replstr = new RegExp('\\s*"?' + $( this ).text() + '"?\\s*', "gi");
-		if (current.match(replstr)) {
-			$(this).addClass('clicked');
-		}
-		else {
-			$(this).removeClass('clicked');
-		}
-	});
-
-	if (current.length === 0 && !$('#tags').hasClass('focus')) {
-		$('label[for=tags]').addClass('overcontent').removeClass('abovecontent').show();
-	}
-
-}

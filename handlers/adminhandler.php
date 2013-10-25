@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari AdminHandler Class
  * Backbone of the admin area, handles requests and functionality.
@@ -91,18 +93,44 @@ class AdminHandler extends ActionHandler
 	/**
 	 * Dispatches the request to the defined method. (ie: post_{page})
 	 */
-	public function act_admin()
+	public function act($action)
 	{
-		$page = ( isset( $this->handler_vars['page'] ) && !empty( $this->handler_vars['page'] ) ) ? $this->handler_vars['page'] : 'dashboard';
+
+		if ( null === $this->handler_vars ) {
+			$this->handler_vars = new SuperGlobal( array() );
+		}
+		$this->action = $action;
+
+		$action_method = 'act_' . $action;
+		$before_action_method = 'before_' . $action_method;
+		$after_action_method = 'after_' . $action_method;
+
+		if ( method_exists( $this, $before_action_method ) ) {
+			$this->$before_action_method();
+		}
+		/**
+		 * Plugin action to allow plugins to execute before a certain
+		 * action is triggered
+		 *
+		 * @see ActionHandler::$action
+		 * @action before_act_{$action}
+		 */
+		Plugins::act( $before_action_method, $this );
+
+		// The body of this function IS the action method, do it.
+		// If I was smarter, I'd pass this code as a closure to the parent act() via a parameter for DRY, but I'm lazy, ha ha
+		$page = $action == 'admin' ? $this->handler_vars['page'] : $action;
 		$page = filter_var( $page, FILTER_SANITIZE_STRING );
 		if ( isset( $this->handler_vars['content_type'] ) ) {
-			$type = Plugins::filter( 'post_type_display', Post::type_name( $this->handler_vars['content_type'] ), 'singular' );
+			$type_name = $this->handler_vars['content_type'];
+			$type = Plugins::filter( 'post_type_display', Post::type_name( $type_name ), 'singular' );
 		}
 		elseif ( $page == 'publish' && isset( $this->handler_vars['id'] ) ) {
-			$type = Post::type_name( Post::get( array( 'status' => Post::status( 'any' ), 'id' => intval( $this->handler_vars['id'] ) ) )->content_type );
-			$type = Plugins::filter( 'post_type_display', $type, 'singular' );
+			$type_name = Post::type_name( Post::get( array( 'status' => Post::status( 'any' ), 'id' => intval( $this->handler_vars['id'] ) ) )->content_type );
+			$type = Plugins::filter( 'post_type_display', $type_name, 'singular' );
 		}
 		else {
+			$type_name = '';
 			$type = '';
 		}
 
@@ -110,46 +138,65 @@ class AdminHandler extends ActionHandler
 
 		// Access check to see if the user is allowed the requested page
 		Utils::check_request_method( array( 'GET', 'HEAD', 'POST' ) );
-		if ( !$this->access_allowed( $page, $type ) ) {
+		if ( !$this->access_allowed( $page, $type_name ) ) {
 			Session::error( _t( 'Access to that page has been denied by the administrator.' ) );
 			$this->get_blank();
 		}
 
-		switch ( $_SERVER['REQUEST_METHOD'] ) {
-			case 'POST':
-				// Let plugins try to handle the page
-				Plugins::act( 'admin_theme_post_' . $page, $this, $this->theme );
-				// Handle POSTs to the admin pages
-				$fn = 'post_' . $page;
-				if ( method_exists( $this, $fn ) ) {
-					$this->$fn();
-				}
-				else {
-					$classname = get_class( $this );
-					_e( '%1$s->%2$s() does not exist.', array( $classname, $fn ) );
-					exit;
-				}
-				break;
-			case 'GET':
-			case 'HEAD':
-				// Let plugins try to handle the page
-				Plugins::act( 'admin_theme_get_' . $page, $this, $this->theme );
-				// Handle GETs of the admin pages
-				$fn = 'get_' . $page;
-				if ( method_exists( $this, $fn ) ) {
-					$this->$fn();
-					exit;
-				}
-				// If a get_ function doesn't exist, just load the template and display it
-				if ( $this->theme->template_exists( $page ) ) {
-					$this->display( $page );
-				}
-				else {
-					// The requested console page doesn't exist
-					header( 'HTTP/1.1 404 Not Found', true, 404 );
-					$this->get_blank( _t( 'The page you were looking for was not found.' ) );
-				}
-				break;
+		if(method_exists($this, $action_method)) {
+			call_user_func(array($this, $action_method));
+		}
+		else {
+
+			switch ( $_SERVER['REQUEST_METHOD'] ) {
+				case 'POST':
+					// Let plugins try to handle the page
+					Plugins::act( 'admin_theme_post_' . $page, $this, $this->theme );
+					// Handle POSTs to the admin pages
+					$fn = 'post_' . $page;
+					if ( method_exists( $this, $fn ) ) {
+						$this->$fn();
+					}
+					else {
+						$classname = get_class( $this );
+						_e( '%1$s->%2$s() does not exist.', array( $classname, $fn ) );
+						exit;
+					}
+					break;
+				case 'GET':
+				case 'HEAD':
+					// Let plugins try to handle the page
+					Plugins::act( 'admin_theme_get_' . $page, $this, $this->theme );
+					// Handle GETs of the admin pages
+					$fn = 'get_' . $page;
+					if ( method_exists( $this, $fn ) ) {
+						$this->$fn();
+						exit;
+					}
+					// If a get_ function doesn't exist, just load the template and display it
+					// @todo Uh, isn't this just an insane idea?  Stop that.
+					if ( $this->theme->template_exists( $page ) ) {
+						Utils::debug('Please report that this page doesn\'t work in the Habari issue queue.');die();
+					}
+					else {
+						// The requested console page doesn't exist
+						header( 'HTTP/1.1 404 Not Found', true, 404 );
+						$this->get_blank( _t( 'The page you were looking for was not found.' ) );
+					}
+					break;
+			}
+		}
+
+		/**
+		 * Plugin action to allow plugins to execute after a certain
+		 * action is triggered
+		 *
+		 * @see ActionHandler::$action
+		 * @action before_act_{$action}
+		 */
+		Plugins::act( $after_action_method );
+		if ( method_exists( $this, $after_action_method ) ) {
+			$this->$after_action_method();
 		}
 	}
 
@@ -188,10 +235,11 @@ class AdminHandler extends ActionHandler
 			$siteinfo[ _t( 'Habari Version' ) ] .= " " . Version::get_git_short_hash();
 		}
 
+		$theme_info = Themes::get_active_data( true );
 		$siteinfo[ _t( 'Habari API Version' ) ] = Version::get_apiversion();
 		$siteinfo[ _t( 'Habari DB Version' ) ] = Version::get_dbversion();
-		$siteinfo[ _t( 'Active Theme' ) ] = Options::get( 'theme_name' );
-		$siteinfo[ _t( 'System Locale' ) ] = HabariLocale::get();
+		$siteinfo[ _t( 'Active Theme' ) ] = $theme_info['name'] . ' ' . $theme_info['version'];
+		$siteinfo[ _t( 'System Locale' ) ] = Locale::get();
 		$siteinfo[ _t( 'Cache Class' ) ] = Cache::get_class();
 		$this->theme->siteinfo = $siteinfo;
 
@@ -201,18 +249,6 @@ class AdminHandler extends ActionHandler
 		$sysinfo[ _t( 'Database' ) ] = DB::get_driver_name() . ' - ' . DB::get_driver_version();
 		$sysinfo[ _t( 'PHP Extensions' ) ] = implode( ', ', get_loaded_extensions() );
 		$sysinfo[ _t( 'PHP Configuration Settings' ) ] = implode( "<br>", Utils::get_ini_settings() );
-		if ( defined( 'PCRE_VERSION' ) ) {
-			$sysinfo[ _t( 'PCRE Version' ) ] = PCRE_VERSION;
-		}
-		else {
-			// probably PHP < 5.2.4
-			ob_start();
-			phpinfo( 8 );
-			$phpinfo = ob_get_contents();
-			ob_end_clean();
-			preg_match( '/PCRE Library Version.*class="v">(.*)$/mi', $phpinfo, $matches );
-			$sysinfo[ _t( 'PCRE Version' ) ] = $matches[ 1 ];
-		}
 		$sysinfo[ _t( 'Browser' ) ] = $_SERVER[ 'HTTP_USER_AGENT' ];
 		$this->theme->sysinfo = $sysinfo;
 
@@ -226,21 +262,21 @@ class AdminHandler extends ActionHandler
 		// Assemble Plugin Info
 		$raw_plugins = Plugins::get_active();
 		$plugins = array( 'system'=>array(), 'user'=>array(), '3rdparty'=>array(), 'other'=>array() );
+		$all_plugins = Plugins::list_all();
 		foreach ( $raw_plugins as $plugin ) {
 			$file = $plugin->get_file();
 			// Catch plugins that are symlinked from other locations as ReflectionClass->getFileName() only returns the ultimate file path, not the symlink path, and we really want the symlink path
-			$all_plugins = Plugins::list_all();
 			$filename = basename( $file );
 			if ( array_key_exists( $filename, $all_plugins ) && $all_plugins[$filename] != $file ) {
 				$file = $all_plugins[$filename];
 			}
 			if ( preg_match( '%[\\\\/](system|3rdparty|user)[\\\\/]plugins[\\\\/]%i', $file, $matches ) ) {
 				// A plugin's info is XML, cast the element to a string. See #1026.
-				$plugins[strtolower( $matches[1] )][(string)$plugin->info->name] = $file;
+				$plugins[strtolower( $matches[1] )][(string)$plugin->info->name] = array( 'file' => $file, 'version' => (string)$plugin->info->version);
 			}
 			else {
 				// A plugin's info is XML, cast the element to a string.
-				$plugins['other'][(string)$plugin->info->name] = $file;
+				$plugins['other'][(string)$plugin->info->name] = array( 'file' => $file, 'version' => (string)$plugin->info->version);
 			}
 		}
 		$this->theme->plugins = $plugins;
@@ -299,11 +335,11 @@ class AdminHandler extends ActionHandler
 			$singular = Plugins::filter( 'post_type_display', $type, 'singular' );
 
 			$createperm = array( 'post_' . $type => ACL::get_bitmask( 'create' ), 'post_any' => ACL::get_bitmask( 'create' ) );
-			$createmenu['create_' . $typeint] = array( 'url' => URL::get( 'admin', 'page=publish&content_type=' . $type ), 'title' => _t( 'Create a new %s', array( $singular ) ), 'text' => $singular, 'access' => $createperm );
+			$createmenu['create_' . $typeint] = array( 'url' => URL::get( 'display_publish', 'content_type_name=' . $type ), 'title' => _t( 'Create a new %s', array( $singular ) ), 'text' => $singular, 'access' => $createperm );
 			$createperms = array_merge( $createperms, $createperm );
 
 			$manageperm = array( 'post_' . $type => array( ACL::get_bitmask( 'edit' ), ACL::get_bitmask( 'delete' ) ), 'own_posts'=>array( ACL::get_bitmask( 'edit' ), ACL::get_bitmask( 'delete' ) ), 'post_any'=>array( ACL::get_bitmask( 'edit' ), ACL::get_bitmask( 'delete' ) ) );
-			$managemenu['manage_' . $typeint] = array( 'url' => URL::get( 'admin', 'page=posts&type=' . $typeint ), 'title' => _t( 'Manage %s', array( $plural ) ), 'text' => $plural, 'access'=> $manageperm );
+			$managemenu['manage_' . $typeint] = array( 'url' => URL::get( 'display_posts', 'type=' . $typeint ), 'title' => _t( 'Manage %s', array( $plural ) ), 'text' => $plural, 'access'=> $manageperm );
 			$manageperms = array_merge( $manageperms, $manageperm );
 
 			$createmenu['create_' . $typeint]['hotkey'] = $hotkey;
@@ -324,17 +360,17 @@ class AdminHandler extends ActionHandler
 		$adminmenu = array(
 			'create' => array( 'url' => '', 'title' => _t( 'Create content' ), 'text' => _t( 'New' ), 'hotkey' => 'N', 'submenu' => $createmenu ),
 			'manage' => array( 'url' => '', 'title' => _t( 'Manage content' ), 'text' => _t( 'Manage' ), 'hotkey' => 'M', 'submenu' => $managemenu ),
-			'comments' => array( 'url' => URL::get( 'admin', 'page=comments' ), 'title' => _t( 'Manage comments' ), 'text' => _t( 'Comments' ), 'hotkey' => 'C', 'access' => array( 'manage_all_comments' => true, 'manage_own_post_comments' => true ) ),
-			'tags' => array( 'url' => URL::get( 'admin', 'page=tags' ), 'title' => _t( 'Manage tags' ), 'text' => _t( 'Tags' ), 'hotkey' => 'A', 'access'=>array( 'manage_tags'=>true ), 'class' => 'over-spacer' ),
-			'dashboard' => array( 'url' => URL::get( 'admin', 'page=' ), 'title' => _t( 'View your user dashboard' ), 'text' => _t( 'Dashboard' ), 'hotkey' => 'D', 'class' => 'under-spacer' ),
-			'options' => array( 'url' => URL::get( 'admin', 'page=options' ), 'title' => _t( 'View and configure site options' ), 'text' => _t( 'Options' ), 'hotkey' => 'O', 'access'=>array( 'manage_options'=>true ) ),
-			'themes' => array( 'url' => URL::get( 'admin', 'page=themes' ), 'title' => _t( 'Preview and activate themes' ), 'text' => _t( 'Themes' ), 'hotkey' => 'T', 'access'=>array( 'manage_theme'=>true ) ),
-			'plugins' => array( 'url' => URL::get( 'admin', 'page=plugins' ), 'title' => _t( 'Activate, deactivate, and configure plugins' ), 'text' => _t( 'Plugins' ), 'hotkey' => 'P', 'access'=>array( 'manage_plugins'=>true, 'manage_plugins_config' => true ) ),
-			'import' => array( 'url' => URL::get( 'admin', 'page=import' ), 'title' => _t( 'Import content from another site' ), 'text' => _t( 'Import' ), 'hotkey' => 'I', 'access'=>array( 'manage_import'=>true ) ),
-			'users' => array( 'url' => URL::get( 'admin', 'page=users' ), 'title' => _t( 'View and manage users' ), 'text' => _t( 'Users' ), 'hotkey' => 'U', 'access'=>array( 'manage_users'=>true ) ),
-			'profile' => array( 'url' => URL::get( 'admin', 'page=user' ), 'title' => _t( 'Manage your user profile' ), 'text' => _t( 'My Profile' ), 'hotkey' => 'Y', 'access'=>array( 'manage_self'=>true, 'manage_users'=>true ) ),
-			'groups' => array( 'url' => URL::get( 'admin', 'page=groups' ), 'title' => _t( 'View and manage groups' ), 'text' => _t( 'Groups' ), 'hotkey' => 'G', 'access'=>array( 'manage_groups'=>true ) ),
-			'logs' => array( 'url' => URL::get( 'admin', 'page=logs' ), 'title' => _t( 'View system log messages' ), 'text' => _t( 'Logs' ), 'hotkey' => 'L', 'access'=>array( 'manage_logs'=>true ), 'class' => 'over-spacer' ) ,
+			'comments' => array( 'url' => URL::get( 'display_comments' ), 'title' => _t( 'Manage comments' ), 'text' => _t( 'Comments' ), 'hotkey' => 'C', 'access' => array( 'manage_all_comments' => true, 'manage_own_post_comments' => true ) ),
+			'tags' => array( 'url' => URL::get( 'display_tags' ), 'title' => _t( 'Manage tags' ), 'text' => _t( 'Tags' ), 'hotkey' => 'A', 'access'=>array( 'manage_tags'=>true ), 'class' => 'over-spacer' ),
+			'dashboard' => array( 'url' => URL::get( 'display_dashboard' ), 'title' => _t( 'View your user dashboard' ), 'text' => _t( 'Dashboard' ), 'hotkey' => 'D', 'class' => 'under-spacer' ),
+			'options' => array( 'url' => URL::get( 'display_options' ), 'title' => _t( 'View and configure site options' ), 'text' => _t( 'Options' ), 'hotkey' => 'O', 'access'=>array( 'manage_options'=>true ) ),
+			'themes' => array( 'url' => URL::get( 'display_themes' ), 'title' => _t( 'Preview and activate themes' ), 'text' => _t( 'Themes' ), 'hotkey' => 'T', 'access'=>array( 'manage_theme'=>true ) ),
+			'plugins' => array( 'url' => URL::get( 'display_plugins' ), 'title' => _t( 'Activate, deactivate, and configure plugins' ), 'text' => _t( 'Plugins' ), 'hotkey' => 'P', 'access'=>array( 'manage_plugins'=>true, 'manage_plugins_config' => true ) ),
+			'import' => array( 'url' => URL::get( 'display_import' ), 'title' => _t( 'Import content from another site' ), 'text' => _t( 'Import' ), 'hotkey' => 'I', 'access'=>array( 'manage_import'=>true ) ),
+			'users' => array( 'url' => URL::get( 'display_users' ), 'title' => _t( 'View and manage users' ), 'text' => _t( 'Users' ), 'hotkey' => 'U', 'access'=>array( 'manage_users'=>true ) ),
+			'profile' => array( 'url' => URL::get( 'own_user_profile' ), 'title' => _t( 'Manage your user profile' ), 'text' => _t( 'My Profile' ), 'hotkey' => 'Y', 'access'=>array( 'manage_self'=>true, 'manage_users'=>true ) ),
+			'groups' => array( 'url' => URL::get( 'display_groups' ), 'title' => _t( 'View and manage groups' ), 'text' => _t( 'Groups' ), 'hotkey' => 'G', 'access'=>array( 'manage_groups'=>true ) ),
+			'logs' => array( 'url' => URL::get( 'display_logs' ), 'title' => _t( 'View system log messages' ), 'text' => _t( 'Logs' ), 'hotkey' => 'L', 'access'=>array( 'manage_logs'=>true ), 'class' => 'over-spacer' ) ,
 			'logout' => array( 'url' => URL::get( 'auth', 'page=logout' ), 'title' => _t( 'Log out of the administration interface' ), 'text' => _t( 'Logout' ), 'hotkey' => 'X', 'class' => 'under-spacer' ),
 		);
 
@@ -539,6 +575,9 @@ class AdminHandler extends ActionHandler
 				$result = true;
 				break;
 			case 'locale':
+				$result = true;
+				break;
+			case 'admin_ajax':
 				$result = true;
 				break;
 			default:

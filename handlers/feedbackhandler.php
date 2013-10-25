@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari FeedbackHandler Class
  * Deals with feedback mechnisms: Commenting, Pingbacking, and the like.
@@ -31,7 +33,7 @@ class FeedbackHandler extends ActionHandler
 		// Allow theme action hooks to work
 		Themes::create();
 		$form = $post->comment_form();
-		$form->get( null, false );
+		$form->get();
 
 		// Disallow non-FormUI comments
 		if ( !$form->submitted ) {
@@ -56,9 +58,6 @@ class FeedbackHandler extends ActionHandler
 			}
 			else {
 				Session::error( _t( 'There was a problem submitting your comment.' ) );
-				foreach ( $form->validate() as $error ) {
-					Session::error( $error );
-				}
 				$form->bounce();
 				//Utils::redirect( $post->permalink . '#respond' );
 			}
@@ -85,32 +84,6 @@ class FeedbackHandler extends ActionHandler
 			// Not sure what you're trying to pull here, but that's no good
 			header( 'HTTP/1.1 403 Forbidden', true, 403 );
 			die();
-		}
-
-		// let's do some basic sanity checking on the submission
-		if ( ( Options::get( 'comments_require_id' ) == true ) && ( empty( $name ) || empty( $email ) ) ) {
-			Session::error( _t( 'Both name and e-mail address must be provided.' ) );
-		}
-
-		if ( empty( $content ) ) {
-			Session::error( _t( 'You did not provide any content for your comment!' ) );
-		}
-
-		if ( Session::has_errors() ) {
-			// save whatever was provided in session data
-			Session::add_to_set( 'comment', $name, 'name' );
-			Session::add_to_set( 'comment', $email, 'email' );
-			Session::add_to_set( 'comment', $url, 'url' );
-			Session::add_to_set( 'comment', $content, 'content' );
-			// now send them back to the form
-			Utils::redirect( $post->permalink . '#respond' );
-		}
-
-		if ( $post->info->comments_disabled ) {
-			// comments are disabled, so let's just send
-			// them back to the post's permalink
-			Session::error( _t( 'Comments on this post are disabled!' ) );
-			Utils::redirect( $post->permalink );
 		}
 
 		/* Sanitize data */
@@ -145,10 +118,6 @@ class FeedbackHandler extends ActionHandler
 				$url = InputFilter::glue_url( $parsed );
 			}
 		}
-		if ( preg_match( '/^\p{Z}*$/u', $content ) ) {
-			Session::error( _t( 'Comment contains only whitespace/empty comment' ) );
-			Utils::redirect( $post->permalink );
-		}
 
 		/* Create comment object*/
 		$comment = new Comment( array(
@@ -158,24 +127,18 @@ class FeedbackHandler extends ActionHandler
 			'url' => $url,
 			'ip' => Utils::get_ip(),
 			'content' => $content,
-			'status' => Comment::STATUS_UNAPPROVED,
-			'date' => HabariDateTime::date_create(),
-			'type' => Comment::COMMENT,
+			'status' => Comment::status('approved'),
+			'date' => DateTime::create(),
+			'type' => Comment::type('comment'),
 		) );
 
 		// Should this really be here or in a default filter?
 		// In any case, we should let plugins modify the status after we set it here.
 		$user = User::identify();
 		if ( ( $user->loggedin ) && ( $comment->email == $user->email ) ) {
-			$comment->status = Comment::STATUS_APPROVED;
+			$comment->status = 'approved';
 		}
 		
-		// Users need to have permission to add comments
-		if ( !$user->can( 'comment' ) ) {
-			Session::error( _t( 'You do not have permission to create comments.' ) );
-			Utils::redirect( $post->permalink );
-		}
-
 		// Allow themes to work with comment hooks
 		Themes::create();
 
@@ -186,18 +149,18 @@ class FeedbackHandler extends ActionHandler
 		$spam_rating = Plugins::filter( 'spam_filter', $spam_rating, $comment, $this->handler_vars, $extra );
 		
 		if ( $spam_rating >= Options::get( 'spam_percentage', 100 ) ) {
-			$comment->status = Comment::STATUS_SPAM;
+			$comment->status = 'spam';
 		}
 
 		$comment->insert();
 		$anchor = '';
 
 		// If the comment was saved
-		if ( $comment->id && $comment->status != Comment::STATUS_SPAM ) { 
+		if ( $comment->id && $comment->status != 'spam' ) { 
 			$anchor = '#comment-' . $comment->id;
 
 			// store in the user's session that this comment is pending moderation
-			if ( $comment->status == Comment::STATUS_UNAPPROVED ) {
+			if ( $comment->status == 'unapproved' ) {
 				Session::notice( _t( 'Your comment is pending moderation.' ), 'comment_' . $comment->id );
 			}
 
@@ -212,7 +175,7 @@ class FeedbackHandler extends ActionHandler
 			if ( User::identify()->loggedin == false && ( !isset( $_COOKIE[ $cookie_name ] ) || $_COOKIE[ $cookie_name ] != $cookie_content ) ) {
 				
 				// update the cookie
-				setcookie( $cookie_name, $cookie_content, time() + HabariDateTime::YEAR, Site::get_path( 'base', true ) );
+				setcookie( $cookie_name, $cookie_content, time() + DateTime::YEAR, Site::get_path( 'base', true ) );
 				
 			}
 		}

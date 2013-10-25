@@ -14,6 +14,12 @@
  * @property int vocabulary_id
  */
 
+namespace Habari;
+
+/**
+ * @property Vocabulary vocabulary The vocabulary this term belongs to
+ * @property integer id The id of this term in the database
+ */
 class Term extends QueryRecord
 {
 	protected $inforecords = null;
@@ -512,7 +518,7 @@ SQL;
 	public function __call( $name, $args )
 	{
 		array_unshift( $args, 'term_call_' . $name, null, $this );
-		return call_user_func_array( array( 'Plugins', 'filter' ), $args );
+		return call_user_func_array( Method::create( '\\Habari\\Plugins', 'filter' ), $args );
 	}
 
 	/**

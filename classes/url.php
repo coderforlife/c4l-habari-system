@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * URL class which handles creation of URLs based on the rewrite
  * rules in the database.  Uses rules to construct pretty URLs for use
@@ -41,7 +43,7 @@ class URL extends Singleton
 	/**
 	 * Get the matched RewriteRule that was matched in parse().
 	 *
-	 * @return RewriteRule matched rule, or null
+	 * @return \Habari\RewriteRule matched rule, or null
 	 */
 	public static function get_matched_rule()
 	{
@@ -61,7 +63,7 @@ class URL extends Singleton
 	/**
 	 * Cause the matched rule to be unset in the case of a 404
 	 *
-	 * @return RewriteRule A rewrite rule that represents a 404 error - no match on the URL requested
+	 * @return \Habari\RewriteRule A rewrite rule that represents a 404 error - no match on the URL requested
 	 */
 	public static function set_404()
 	{
@@ -82,7 +84,7 @@ class URL extends Singleton
 	 * Returns the matched RewriteRule object, or false.
 	 *
 	 * @param string $from_url URL string to parse
-	 * @return RewriteRule matched rule, or false
+	 * @return \Habari\RewriteRule matched rule, or false
 	 */
 	public static function parse( $from_url )
 	{
@@ -110,8 +112,8 @@ class URL extends Singleton
 		/*
 		 * Run the stub through the regex matcher
 		 */
-		$pattern_matches = array();
 		self::$stub = $from_url;
+		/** @var RewriteRule $rule */
 		foreach ( $url->rules as $rule ) {
 			if ( $rule->match( $from_url ) ) {
 				$url->matched_rule = $rule;
@@ -130,20 +132,23 @@ class URL extends Singleton
 	 *
 	 * <code>
 	 * URL::get( 'display_entries_by_date', array(
-	 * 	'year' => '2000',
-	 * 	'month' => '05',
-	 * 	'day' => '01',
+	 *   'year' => '2000',
+	 *   'month' => '05',
+	 *   'day' => '01',
 	 * ) );
 	 * </code>
 	 *
 	 * @param mixed $rule_names string name of the rule or array of rules which would build the URL
 	 * @param mixed $args (optional) array or object of placeholder replacement values
 	 * @param boolean $useall If true (default), then all passed parameters that are not part of the built URL are tacked onto the URL as querystring
+	 * @param bool $noamp
 	 * @param boolean $prepend_site If true (default), a full URL is returned, if false, only the path part of the URL is returned
+	 * @return string
 	 */
 	public static function get( $rule_names = '', $args = array(), $useall = true, $noamp = false, $prepend_site = true )
 	{
-		$args = self::extract_args( $args );
+		$f_args = self::extract_args( $args );
+		$f_args = Plugins::filter('url_args', $f_args, $args, $rule_names);
 
 		$url = URL::instance();
 		if ( $rule_names == '' ) {
@@ -154,14 +159,13 @@ class URL extends Singleton
 			$rr_named_args = $selectedrule->named_args;
 
 			$rr_args = array_merge( $rr_named_args['required'], $rr_named_args['optional']  );
-			// For each argument, check if the handler_vars array has that argument and if it does, use it.
-			$rr_args_values = array();
 
+			// For each argument, check if the handler_vars array has that argument and if it does, use it.
 			foreach ( $rr_args as $rr_arg ) {
-				if ( !isset( $args[$rr_arg] ) ) {
+				if ( !isset( $f_args[$rr_arg] ) ) {
 					$rr_arg_value = Controller::get_var( $rr_arg );
 					if ( $rr_arg_value != '' ) {
-						$args[$rr_arg] = $rr_arg_value;
+						$f_args[$rr_arg] = $rr_arg_value;
 					}
 				}
 			}
@@ -178,7 +182,7 @@ class URL extends Singleton
 				if ( $rules = $url->rules->by_name( $rule_name ) ) {
 					$rating = null;
 					foreach ( $rules as $rule ) {
-						$newrating = $rule->arg_match( $args );
+						$newrating = $rule->arg_match( $f_args );
 						// Is the rating perfect?
 						if ( $rating == 0 ) {
 							$selectedrule = $rule;
@@ -197,16 +201,16 @@ class URL extends Singleton
 		}
 
 		if ( $selectedrule instanceOf RewriteRule ) {
-			$return_url = $selectedrule->build( $args, $useall, $noamp );
+			$return_url = $selectedrule->build( $f_args, $useall, $noamp );
 			if ( $prepend_site ) {
-				return Site::get_url( 'habari', true ) . $return_url;
+				return Site::get_url( 'site', true ) . $return_url;
 			}
 			else {
 				return $return_url;
 			}
 		}
 		else {
-			$error = new Exception();
+			$error = new \Exception();
 			$error_trace = $error->getTrace();
 			// Since URL::out() calls this function, the index 0 is URL::get() which is not the proper failing call.
 			if ( isset( $error_trace[1]['class'] ) && isset( $error_trace[1]['function'] ) && ( $error_trace[1]['class'] == 'URL' ) && ( $error_trace[1]['function'] == 'out' ) ) {
@@ -225,7 +229,9 @@ class URL extends Singleton
 	 * @param string $rule_name name of the rule which would build the URL
 	 * @param array $args (optional) array of placeholder replacement values
 	 * @param boolean $useall If true (default), then all passed parameters that are not part of the built URL are tacked onto the URL as querystring
+	 * @param bool $noamp
 	 * @param boolean $prepend_site If true (default), a full URL is returned, if false, only the path part of the URL is returned
+	 * @return void
 	 */
 	public static function out( $rule_name = null, $args = array(), $useall = true, $noamp = true, $prepend_site = true )
 	{
@@ -236,8 +242,8 @@ class URL extends Singleton
 	 * Get a fully-qualified URL from a filesystem path
 	 *
 	 * @param string $path The filesystem path
-	 * @param string|bool If true, include a trailing slash.  If string, append this to the requested url.  Default: Add nothing.
-	 * @param bool If true, leave the filename on the URL.  Default: Remove filename.
+	 * @param string|bool $trail If true, include a trailing slash.  If string, append this to the requested url.  Default: Add nothing.
+	 * @param bool $preserve_file If true, leave the filename on the URL.  Default: Remove filename.
 	 * @return string URL
 	 */
 	public static function get_from_filesystem( $path, $trail = false, $preserve_file = false )
@@ -255,6 +261,7 @@ class URL extends Singleton
 	/**
 	 * Extract the possible arguments to use in the URL from the passed variable
 	 * @param mixed $args An array of values or a URLProperties object with properties to use in the construction of a URL
+	 * @param string $prefix
 	 * @return array Properties to use to construct  a URL
 	 */
 	public static function extract_args( $args, $prefix = '' )
@@ -283,6 +290,31 @@ class URL extends Singleton
 			$args = $args_out;
 		}
 		return $args;
+	}
+
+	/**
+	 * Helper method for auth_ajax rule
+	 * @param string $context The context of the ajax rule
+	 * @param array|string|object $args The arguments to pass to the rule's builder
+	 * @return string The resultant URL
+	 */
+	public static function auth_ajax($context, $args = array())
+	{
+		$args['context'] = $context;
+		return URL::get('auth_ajax', $args);
+	}
+
+
+	/**
+	 * Helper method for ajax rule
+	 * @param string $context The context of the ajax rule
+	 * @param array|string|object $args The arguments to pass to the rule's builder
+	 * @return string The resultant URL
+	 */
+	public static function ajax($context, $args = array())
+	{
+		$args['context'] = $context;
+		return URL::get('ajax', $args);
 	}
 
 }

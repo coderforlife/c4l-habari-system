@@ -1,8 +1,9 @@
+<?php namespace Habari; ?>
 <?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
 <?php include('header.php'); ?>
 
 <div class="container navigation">
-	<span class="pct40">
+	<span class="columns seven">
 		<select name="navigationdropdown" onchange="navigationDropdown.filter();" tabindex="1">
 			<option value="all"><?php _e('All plugins'); ?></option>
 			<?php if ( isset($config_plugin) ): ?>
@@ -16,56 +17,43 @@
 			<?php endif; ?>
 		</select>
 	</span>
-	<span class="or pct20">
+	<span class="columns one or">
 		<?php _e('or'); ?>
 	</span>
-	<span class="pct40">
+	<span class="columns eight">
 		<input type="search" id="search" placeholder="<?php _e('search plugins'); ?>" tabindex="2" autofocus="autofocus">
 	</span>
 </div>
 
 <?php
 if ( isset($config_plugin) ): ?>
-
-<div class="container plugins configureplugin" id="configureplugin">
-
+<div class="container main plugins configureplugin" id="configureplugin">
 	<h2><?php echo $config_plugin['info']->name; ?> &middot; <?php echo $config_plugin_caption; ?></h2>
-
 	<?php
-
 	$theme->config = true;
 	$theme->plugin = $config_plugin;
 	$theme->display('plugin');
-
 	$theme->config = false;
-
 	?>
-
 </div>
-
 <?php endif; ?>
 
-
 <?php if ( count($active_plugins) > 0 ): ?>
-
-<div class="container plugins activeplugins" id="activeplugins">
-
-	<h2><?php _e('Active Plugins'); ?></h2>
-
+<div class="container main plugins activeplugins" id="activeplugins">
+	<h2 class="lead"><?php _e('Active Plugins'); ?></h2>
 	<?php
 	foreach ( $active_plugins as $plugin ) {
 		$theme->plugin = $plugin;
 		$theme->display('plugin');
 	}
 	?>
-
 </div>
 <?php endif; ?>
 
 <?php if ( count($inactive_plugins) > 0 ): ?>
-<div class="container plugins inactiveplugins" id="inactiveplugins">
+<div class="container main plugins inactiveplugins" id="inactiveplugins">
 
-	<h2><?php _e('Inactive Plugins'); ?></h2>
+	<h2 class="lead"><?php _e('Inactive Plugins'); ?></h2>
 	
 	<?php
 	foreach ( $inactive_plugins as $plugin) {

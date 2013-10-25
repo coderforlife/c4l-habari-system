@@ -4,6 +4,7 @@
  *
  */
 
+namespace Habari;
 /**
  * Habari Site class
  *
@@ -75,7 +76,7 @@ class Site
 	 * @examples:
 	 *	if ( Site::is('main') )
 	 *	if ( Site::is('multi') )
-	 * @param string The name of the boolean to test
+	 * @param string $what The name of the boolean to test
 	 * @return bool the result of the check
 	 */
 	public static function is( $what )
@@ -124,8 +125,8 @@ class Site
 	 *	'3rdparty' returns http://www.habariproject.org/3rdparty
 	 *     if /3rdparty does not exists, /system/vendor will be returned
 	 *	'hostname' returns www.habariproject.org
-	 * @param string the name of the URL to return
-	 * @param bool whether to include a trailing slash.  Default: No
+	 * @param string $name the name of the URL to return
+	 * @param bool|string $trail whether to include a trailing slash, or a string to use as the trailing value.  Default: false
 	 * @return string URL
 	 */
 	public static function get_url( $name, $trail = false )
@@ -152,26 +153,25 @@ class Site
 				$url = $protocol . '://' . $host . $portpart;
 				break;
 			case 'habari':
-				if ( null !== self::$habari_url ) {
-					$url = self::$habari_url;
-				}
-				else {
-					$url = Site::get_url( 'host' );
+				if(self::$habari_url == null) {
+					self::$habari_url = Site::get_url( 'host' );
+					// Am I installed into a subdir?
 					$path = trim( dirname( Site::script_name() ), '/\\' );
 					if ( '' != $path ) {
-						$url .= '/' . $path;
+						self::$habari_url .= '/' . $path;
 					}
-					self::$habari_url = $url;
 				}
+				$url = self::$habari_url;
 				break;
 			case 'site':
-				$url = Site::get_url( 'host' );
+				$url = Site::get_url( 'habari' );
+				// Am I in a Habari subdir site?
 				if( self::$config_type == Site::CONFIG_SUBDIR ) {
-					$url .= '/' . self::$config_urldir;
+					$url = Utils::end_in_slash($url) . self::$config_urldir;
 				}
 				break;
 			case 'user':
-				$url = Site::get_url( 'host' ) . Site::get_path( 'base', true ) . Site::get_path( 'user' );
+				$url = Site::get_url( 'habari', true ) . Site::get_path( 'user' );
 				break;
 			case 'theme':
 				$theme = Themes::get_theme_dir();
@@ -189,16 +189,16 @@ class Site
 				}
 				break;
 			case 'admin':
-				$url = Site::get_url( 'habari' ) . '/admin';
+				$url = Site::get_url( 'site' ) . '/admin';
 				break;
 			case 'admin_theme':
 				$url = Site::get_url( 'habari' ) . '/system/admin';
 				break;
 			case 'login':
-				$url = Site::get_url( 'habari' ) . '/auth/login';
+				$url = Site::get_url( 'site' ) . '/auth/login';
 				break;
 			case 'logout':
-				$url = Site::get_url( 'habari' ) . '/auth/logout';
+				$url = Site::get_url( 'site' ) . '/auth/logout';
 				break;
 			case 'system':
 				$url = Site::get_url( 'habari' ) . '/system';
@@ -230,15 +230,16 @@ class Site
 	/**
 	 * get_path returns a relative URL path, without leading protocol or host
 	 *	'base' returns the URL sub-directory in which Habari is installed, if any.
-	 *  'habari' returns the same as 'base'
+	 *  'habari' returns the path of Habari
 	 *	'user' returns one of the following:
 	 *		user
 	 *		user/sites/x.y.z
 	 *	'theme' returns one of the following:
 	 *		/user/themes/theme_name
 	 *		/user/sites/x.y.z/themes/theme_dir
-	 * @param string the name of the path to return
-	 * @param bool whether to include a trailing slash.  Default: No
+	 * @param string $name the name of the path to return
+	 * @param bool|string $trail whether to include a trailing slash, or a string to use as the trailing value.  Default: false
+	 * @return mixed
 	 */
 	public static function get_path( $name, $trail = false )
 	{
@@ -247,6 +248,9 @@ class Site
 			case 'base':
 			case 'habari':
 				$path = rtrim( dirname( Site::script_name() ), '/\\' );
+				if(self::$config_urldir != '') {
+					$path .= '/' . self::$config_urldir;
+				}
 				break;
 			case 'user':
 				if ( Site::is( 'main' ) ) {
@@ -262,7 +266,7 @@ class Site
 					$path = Site::get_path( 'user' ) . '/themes/' . $theme;
 				}
 				elseif ( file_exists( HABARI_PATH . '/3rdparty/themes/' . $theme ) ) {
-					$url = Site::get_url( 'habari' ) . '/3rdparty/themes/' . $theme;
+					$path = Site::get_path( 'habari' ) . '/3rdparty/themes/' . $theme;
 				}
 				else {
 					$path = Site::get_path( 'base' ) . '/user/themes/' . $theme;
@@ -285,8 +289,8 @@ class Site
 	 *	'theme' returns the path of the site's active theme
 	 *  'admin_theme' returns the path to the admin directory
 	 *  'vendor' returns the path to the vendor directory
-	 * @param string the name of the path item to return
-	 * @param bool whether to include a trailing slash.  Default: No
+	 * @param string $name the name of the path item to return
+	 * @param bool|string $trail whether to include a trailing slash, or a string to use as the trailing value.  Default: false
 	 * @return string Path
 	 */
 	public static function get_dir( $name, $trail = false )
@@ -310,21 +314,29 @@ class Site
 					return self::$config_path;
 				}
 
+				// Collect host parts
 				$server = InputFilter::parse_url( Site::get_url( 'habari' ) );
 				$request = array();
 				if ( isset( $server['port'] ) && $server['port'] != '' && $server['port'] != '80' ) {
 					$request[] = $server['port'];
 				}
 				$request = array_merge($request, explode('.', $server['host']));
+				// Collect the subdirectory(s) the core is located in to determine the base path later
+				// Don't add them to $request, they will be added with $_SERVER['REQUEST_URI']
 				$basesegments = count($request);
+				if(!empty($server['path'])) {
+					$coresubdir = explode( '/', trim( $server['path'], '/' ) );
+					$basesegments += count($coresubdir);
+				}
 				$request = array_merge($request, explode( '/', trim( $_SERVER['REQUEST_URI'], '/' ) ) );
+				// Now cut parts from the end until we found a matching site directory
 				$x = 0;
 				do {
 					$match = implode('.', $request);
 					if ( in_array( $match, $config_dirs ) ) {
 						self::$config_dir = $match;
 						self::$config_path = HABARI_PATH . '/user/sites/' . self::$config_dir;
-						self::$config_type = ( $basesegments > count($request) ) ? Site::CONFIG_SUBDOMAIN : Site::CONFIG_SUBDIR;
+						self::$config_type = ( $basesegments < count($request) ) ? Site::CONFIG_SUBDIR : Site::CONFIG_SUBDOMAIN;
 						self::$config_urldir = implode('/', array_slice($request, $basesegments));
 						break;
 					}
@@ -356,7 +368,7 @@ class Site
 					$path = HABARI_PATH . '/user/themes/' . $theme;
 				}
 				elseif ( file_exists( HABARI_PATH . '/3rdparty/themes/' . $theme ) ) {
-					$url = Site::get_url( 'habari' ) . '/3rdparty/themes/' . $theme;
+					$path = Site::get_dir( 'habari' ) . '/3rdparty/themes/' . $theme;
 				}
 				else {
 					$path = HABARI_PATH . '/system/themes/' . $theme;
@@ -376,8 +388,8 @@ class Site
 
 	/**
 	 * out_url echos out a URL
-	 * @param string the URL to display
-	 * @param bool whether or not to include a trailing slash.  Default: No
+	 * @param string $url the URL to display
+	 * @param bool|string $trail whether or not to include a trailing slash, or a string to use as the trailing value.  Default: false
 	 */
 	public static function out_url( $url, $trail = false )
 	{
@@ -386,8 +398,8 @@ class Site
 
 	/**
 	 * out_path echos a URL path
-	 * @param string the URL path to display
-	 * @param bool whether or not to include a trailing slash.  Default: No
+	 * @param string $path the URL path to display
+	 * @param bool $trail whether or not to include a trailing slash, or a string to use as the trailing value.  Default: false
 	 */
 	public static function out_path( $path, $trail = false )
 	{
@@ -396,27 +408,13 @@ class Site
 
 	/**
 	 * our_dir echos our a filesystem directory
-	 * @param string the filesystem directory to display
-	 * @param bool whether or not to include a trailing slash.  Default: No
+	 * @param string $dir the filesystem directory to display
+	 * @param bool $trail whether or not to include a trailing slash, or a string to use as the trailing value.  Default: false
 	 */
 	public static function out_dir( $dir, $trail = false )
 	{
 		echo Site::get_dir( $dir, $trail );
 	}
-
-/*
-I'm unclear whether we need these.  If so, they likely belong in a new method, since they're neither URLs, paths, nor directories.
-
-			case 'config_type':
-				self::get_config_path();
-				$path= self::$config_type;
-				break;
-			case 'config_name':
-				self::get_dir( 'config' );
-				$path= self::$config_dir;
-				break;
-*/
-
 }
 
 ?>

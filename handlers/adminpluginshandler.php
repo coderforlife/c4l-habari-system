@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari AdminPluginsHandler Class
  * Handles plugin-related actions in the admin
@@ -35,6 +37,7 @@ class AdminPluginsHandler extends AdminHandler
 			if ( Utils::php_check_file_syntax( $file, $error ) ) {
 				$plugin['debug'] = false;
 				$plugin['info'] = Plugins::load_info( $file );
+				$plugin['core'] = (strpos($file, 'system' . DIRECTORY_SEPARATOR . 'plugins') !== false);
 				if ( array_key_exists( $plugin_id, $active_plugins ) ) {
 					$plugin['verb'] = _t( 'Deactivate' );
 					$pluginobj = $active_plugins[$plugin_id];
@@ -51,31 +54,32 @@ class AdminPluginsHandler extends AdminHandler
 							'caption' => $plugin_action_caption,
 							'action' => $plugin_action,
 						);
-						$urlparams = array( 'page' => 'plugins', 'configure'=>$plugin_id);
-						$action['url'] = URL::get( 'admin', $urlparams );
+						$urlparams = array( 'page' => 'plugins', 'configure' => $plugin_id, 'action' => $plugin_action);
+						$action['href'] = URL::get( 'display_plugins', $urlparams );
 
 						// @locale Displayed as an icon indicating there is help text available for a plugin.
 						if ( $action['caption'] == _t( '?' ) ) {
-							if ( isset( $_GET['configaction'] ) ) {
-								$urlparams['configaction'] = $_GET['configaction'];
+							$q = Controller::get_var('action');
+							if ( isset( $q ) ) {
+								$urlparams['action'] = Controller::get_var('action');
 							}
 							if ( $_GET['help'] != $plugin_action ) {
 								$urlparams['help'] = $plugin_action;
 							}
-							$action['url'] = URL::get( 'admin', $urlparams );
+							$action['url'] = URL::get( 'display_plugins', $urlparams );
 							$plugin['help'] = $action;
 						}
 						else {
 							if ( isset( $_GET['help'] ) ) {
 								$urlparams['help'] = $_GET['help'];
 							}
-							$urlparams['configaction'] = $plugin_action;
-							$action['url'] = URL::get( 'admin', $urlparams );
+							$urlparams['action'] = $plugin_action;
+							$action['url'] = URL::get( 'display_plugins', $urlparams );
 							$plugin['actions'][$plugin_action] = $action;
 						}
 					}
 					$plugin['actions']['deactivate'] = array(
-						'url' =>  URL::get( 'admin', 'page=plugin_toggle&plugin_id=' . $plugin['plugin_id'] . '&action=deactivate' ),
+						'href' =>  URL::get( 'plugin_toggle' , 'plugin_id=' . $plugin['plugin_id'] . '&action=deactivate' ),
 						'caption' => _t( 'Deactivate' ),
 						'action' => 'Deactivate',
 					);
@@ -93,14 +97,14 @@ class AdminPluginsHandler extends AdminHandler
 					$plugin['verb'] = _t( 'Activate' );
 					$plugin['actions'] = array(
 						'activate' => array(
-							'url' =>  URL::get( 'admin', 'page=plugin_toggle&plugin_id=' . $plugin['plugin_id'] . '&action=activate' ),
+							'href' =>  URL::get( 'plugin_toggle', 'plugin_id=' . $plugin['plugin_id'] . '&action=activate' ),
 							'caption' => _t( 'Activate' ),
 							'action' => 'activate',
 						),
 					);
 					if ( isset( $plugin['info']->help ) ) {
-						if ( isset( $_GET['configaction'] ) ) {
-							$urlparams['configaction'] = $_GET['configaction'];
+						if ( isset( $_GET['action'] ) ) {
+							$urlparams['action'] = $_GET['action'];
 						}
 						if ( $_GET['help'] != '_help' ) {
 							$urlparams['help'] = '_help';
@@ -124,19 +128,20 @@ class AdminPluginsHandler extends AdminHandler
 				$plugin['error'] = $error;
 				$plugin['active'] = false;
 			}
-			if ( isset( $this->handler_vars['configure'] ) && ( $this->handler_vars['configure'] == $plugin['plugin_id'] ) ) {
-				if ( isset( $plugin['help'] ) && Controller::get_var( 'configaction' ) == $plugin['help']['action'] ) {
+			if ( !is_null( Controller::get_var('configure') ) && ( Controller::get_var('configure') == $plugin['plugin_id'] ) ) {
+				$this->theme->configaction = Controller::get_var('action');
+				if ( isset( $plugin['help'] ) && Controller::get_var( 'action' ) == $plugin['help']['action'] ) {
 					$this->theme->config_plugin_caption = _t( 'Help' );
 				}
 				else {
-					if ( isset( $plugin['actions'][Controller::get_var( 'configaction' )] ) ) {
-						$this->theme->config_plugin_caption = $plugin['actions'][Controller::get_var( 'configaction' )]['caption'];
+					if ( isset( $plugin['actions'][Controller::get_var( 'action' )] ) ) {
+						$this->theme->config_plugin_caption = $plugin['actions'][Controller::get_var( 'action' )]['caption'];
 					}
 					else {
-						$this->theme->config_plugin_caption = Controller::get_var( 'configaction' );
+						$this->theme->config_plugin_caption = Controller::get_var( 'action' );
 					}
 				}
-				unset( $plugin['actions'][Controller::get_var( 'configaction' )] );
+				unset( $plugin['actions'][Controller::get_var( 'action' )] );
 				$this->theme->config_plugin = $plugin;
 			}
 			else if ( $plugin['active'] ) {
@@ -179,7 +184,7 @@ class AdminPluginsHandler extends AdminHandler
 		}
 
 		//$this->theme->plugins = array_merge($sort_active_plugins, $sort_inactive_plugins);
-		$this->theme->assign( 'configaction', Controller::get_var( 'configaction' ) );
+		$this->theme->assign( 'action', Controller::get_var( 'action' ) );
 		$this->theme->assign( 'helpaction', Controller::get_var( 'help' ) );
 		$this->theme->assign( 'configure', Controller::get_var( 'configure' ) );
 		uasort($sort_active_plugins, array( $this, 'compare_names' ) );
@@ -205,7 +210,7 @@ class AdminPluginsHandler extends AdminHandler
 	 */
 	public function get_plugin_toggle()
 	{
-		$extract = $this->handler_vars->filter_keys( 'plugin_id', 'action' );
+		$extract = $_GET->filter_keys( 'plugin_id', 'action' );
 		foreach ( $extract as $key => $value ) {
 			$$key = $value;
 		}
@@ -218,7 +223,7 @@ class AdminPluginsHandler extends AdminHandler
 						if ( Plugins::activate_plugin( $file ) ) {
 							$plugins = Plugins::get_active();
 							Session::notice(
-								_t( "Activated plugin '%s'", array( $plugins[Plugins::id_from_file( $file )]->info->name ) ),
+								_t( "Activated plugin '@plugin'", array( '@plugin' => $plugins[Plugins::id_from_file( $file )]->info->name ) ),
 								$plugins[Plugins::id_from_file( $file )]->plugin_id
 							);
 						}
@@ -227,7 +232,7 @@ class AdminPluginsHandler extends AdminHandler
 						if ( Plugins::deactivate_plugin( $file ) ) {
 							$plugins = Plugins::get_active();
 							Session::notice(
-								_t( "Deactivated plugin '%s'", array( $plugins[Plugins::id_from_file( $file )]->info->name ) ),
+								_t( "Deactivated plugin '@plugin'", array( '@plugin' => $plugins[Plugins::id_from_file( $file )]->info->name ) ),
 								$plugins[Plugins::id_from_file( $file )]->plugin_id
 							);
 						}
@@ -244,7 +249,7 @@ class AdminPluginsHandler extends AdminHandler
 				}
 			}
 		}
-		Utils::redirect( URL::get( 'admin', 'page=plugins' ) );
+		Utils::redirect( URL::get( 'display_plugins' ) );
 	}
 
 	/*

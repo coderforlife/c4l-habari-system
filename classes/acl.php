@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Access Control List class
  *
@@ -26,8 +28,18 @@ class ACL
 	const ACCESS_NONEXISTENT_PERMISSION = 0;
 	const CACHE_NULL = -1;
 
-	public static $access_names = array( 'read', 'edit', 'delete', 'create' );
+	private static $access_names = array( 'read', 'edit', 'delete', 'create' );
 	private static $token_cache = null;
+
+
+	/**
+	 * Obtain the list of access names (CRUD) to use for permissions.
+	 * @return array the list of access names available to ACL
+	 */
+	public static function access_names()
+	{
+		return Plugins::filter( 'post_access_names', self::$access_names );
+	}
 
 	/**
 	 * Check a permission bitmask for a particular access type.
@@ -61,7 +73,7 @@ class ACL
 	 */
 	public static function get_bitmask( $mask )
 	{
-		$bitmask = new Bitmask( self::$access_names, $mask );
+		$bitmask = new Bitmask( self::access_names(), $mask );
 		return $bitmask;
 	}
 
@@ -365,13 +377,12 @@ class ACL
 		if ( defined( 'LOCKED_OUT_SUPER_USER' ) && $token == 'super_user' ) {
 			$su = User::get( LOCKED_OUT_SUPER_USER );
 			if ( $su->id == $user_id ) {
-				return new Bitmask( self::$access_names, 'read');
+				return new Bitmask( self::access_names(), 'read');
 			}
 		}
 
 		// check the cache first for the user's access_mask on the token
-		if ( isset( $_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] ) ) {
-//			Utils::debug($token, $_SESSION['user_token_access'][$token_id]);
+		if ( isset( $_SESSION[ 'user_token_access' ]) && isset( $_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] ) ) {
 			if ( $_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] == ACL::CACHE_NULL ) {
 				return null;
 			}
@@ -435,7 +446,12 @@ SQL;
 		$accesses = Plugins::filter( 'user_token_access', $accesses, $user_id, $token_id );
 
 		if ( count( $accesses ) == 0 ) {
-			$_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] = ACL::CACHE_NULL;
+			if($user_id == 0) {
+				// @todo store this anonymous user token info in Cache
+			}
+			else {
+				$_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] = ACL::CACHE_NULL;
+			}
 			return null;
 		}
 		else {
@@ -450,7 +466,12 @@ SQL;
 				}
 			}
 
-			$_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] = $result;
+			if($user_id == 0) {
+				// @todo store this anonymous user token info in Cache
+			}
+			else {
+				$_SESSION[ 'user_token_access' ][ $user_id ][ $token_id ] = $result;
+			}
 			return self::get_bitmask( $result );
 		}
 	}
@@ -464,8 +485,7 @@ SQL;
 	public static function user_tokens( $user, $access = 'full', $posts_only = false )
 	{
 		static $post_tokens = null;
-
-		$bitmask = new Bitmask ( self::$access_names );
+		$bitmask = new Bitmask ( self::access_names() );
 		$tokens = array();
 
 		// convert $user to an ID
@@ -480,7 +500,7 @@ SQL;
 		}
 
 		// Implement cache RIGHT HERE
-		if ( isset( $_SESSION[ 'user_tokens' ][ $user_id ][ $access ] ) ) {
+		if ( isset( $_SESSION[ 'user_tokens' ] ) && isset( $_SESSION[ 'user_tokens' ][ $user_id ][ $access ] ) ) {
 			return $_SESSION[ 'user_tokens' ][ $user_id ][ $access ];
 		}
 
@@ -489,7 +509,7 @@ SQL;
 			$token_ids = DB::get_column( 'SELECT id as token_id FROM {tokens}' );
 			$result = array();
 			foreach ( $token_ids as $id ) {
-				$result_row = new StdClass();
+				$result_row = new \StdClass();
 				$result_row->token_id = $id;
 				$result_row->access_mask = $bitmask->full;
 				$result[] = $result_row;
@@ -532,7 +552,12 @@ SQL;
 			$tokens = array_intersect( $tokens, $post_tokens );
 		}
 
-		$_SESSION[ 'user_tokens' ][ $user_id ][ $access ] = $tokens;
+		if($user_id == 0) {
+			// @todo store access data in Cache
+		}
+		else {
+			$_SESSION[ 'user_tokens' ][ $user_id ][ $access ] = $tokens;
+		}
 		return $tokens;
 	}
 
@@ -761,31 +786,31 @@ SQL;
 		self::create_token( 'super_user', 'Permissions for super users', 'Super User' );
 
 		// admin tokens
-		self::create_token( 'manage_all_comments', _t( 'Manage comments on all posts' ), 'Administration' );
-		self::create_token( 'manage_own_post_comments', _t( 'Manage comments on one\'s own posts' ), 'Administration' );
-		self::create_token( 'manage_tags', _t( 'Manage tags' ), 'Administration' );
-		self::create_token( 'manage_options', _t( 'Manage options' ), 'Administration' );
-		self::create_token( 'manage_theme', _t( 'Change theme' ), 'Administration' );
-		self::create_token( 'manage_theme_config', _t( 'Configure the active theme' ), 'Administration' );
-		self::create_token( 'manage_plugins', _t( 'Activate/deactivate plugins' ), 'Administration' );
-		self::create_token( 'manage_plugins_config', _t( 'Configure active plugins' ), 'Administration' );
-		self::create_token( 'manage_import', _t( 'Use the importer' ), 'Administration' );
-		self::create_token( 'manage_users', _t( 'Add, remove, and edit users' ), 'Administration' );
-		self::create_token( 'manage_self', _t( 'Edit own profile' ), 'Administration' );
-		self::create_token( 'manage_groups', _t( 'Manage groups and permissions' ), 'Administration' );
-		self::create_token( 'manage_logs', _t( 'Manage logs' ), 'Administration' );
-		self::create_token( 'manage_dash_modules', _t( 'Manage dashboard modules' ), 'Administration' );
+		self::create_token( 'manage_all_comments', 'Manage comments on all posts', 'Administration' );
+		self::create_token( 'manage_own_post_comments', 'Manage comments on one\'s own posts', 'Administration' );
+		self::create_token( 'manage_tags',  'Manage tags' , 'Administration' );
+		self::create_token( 'manage_options', 'Manage options' , 'Administration' );
+		self::create_token( 'manage_theme', 'Change theme' , 'Administration' );
+		self::create_token( 'manage_theme_config', 'Configure the active theme' , 'Administration' );
+		self::create_token( 'manage_plugins', 'Activate/deactivate plugins' , 'Administration' );
+		self::create_token( 'manage_plugins_config', 'Configure active plugins' , 'Administration' );
+		self::create_token( 'manage_import', 'Use the importer' , 'Administration' );
+		self::create_token( 'manage_users', 'Add, remove, and edit users', 'Administration' );
+		self::create_token( 'manage_self', 'Edit own profile', 'Administration' );
+		self::create_token( 'manage_groups', 'Manage groups and permissions', 'Administration' );
+		self::create_token( 'manage_logs', 'Manage logs', 'Administration' );
+		self::create_token( 'manage_dash_modules', 'Manage dashboard modules', 'Administration' );
 
 		// content tokens
-		self::create_token( 'own_posts', _t( 'Permissions on one\'s own posts' ), _t( 'Content' ), true );
-		self::create_token( 'post_any', _t( 'Permissions to all posts' ), _t( 'Content' ), true );
-		self::create_token( 'post_unpublished', _t( "Permissions to other users' unpublished posts" ), _t( 'Content' ), true );
+		self::create_token( 'own_posts', 'Permissions on one\'s own posts', 'Content', true );
+		self::create_token( 'post_any', 'Permissions to all posts', 'Content' , true );
+		self::create_token( 'post_unpublished', "Permissions to other users' unpublished posts", 'Content' , true );
 		foreach ( Post::list_active_post_types() as $name => $posttype ) {
-			self::create_token( 'post_' . Utils::slugify( $name ), _t( 'Permissions to posts of type "%s"', array( $name ) ), _t( 'Content' ), true );
+			self::create_token( 'post_' . Utils::slugify( $name ), _t( 'Permissions to posts of type "%s"', array( $name ) ), 'Content' , true );
 		}
 
 		// comments tokens
-		self::create_token( 'comment', 'Make comments on any post', _t( 'Comments' ) );
+		self::create_token( 'comment', 'Make comments on any post', 'Comments' );
 	}
 
 	/**
@@ -851,9 +876,98 @@ SQL;
 	/**
 	 * Dummy function to inject strings into the .pot
 	 */
-	private static function translations() {
+/*	private static function translations() {
 		// @locale The names of the CRUD group token permissions
 		_t( 'read' ); _t( 'edit' ); _t( 'delete' ); _t( 'create' );
+	}
+*/
+	/**
+	 * Register plugin hooks
+	 * @static
+	 */
+	public static function __static()
+	{
+		Plugins::register( array( '\\Habari\\ACL', '_filter_token_description_display' ), 'filter', 'token_description_display' );
+		Plugins::register( array( '\\Habari\\ACL', '_filter_token_group_display' ), 'filter', 'token_group_display' );
+		Plugins::register( array( '\\Habari\\ACL', '_filter_permission_display' ), 'filter', 'permission_display' );
+	}
+
+	/**
+	 * function _filter_token_description_display
+	 * Filter to localize token descriptions
+	 * @param string Token to get the description of
+	 * @return string The localized token description
+	 */
+	public static function _filter_token_description_display( $token )
+	{
+		$desc = array(
+			'super_user' => _t( 'Permissions for super users' ),
+			// admin tokens
+			'manage_all_comments' => _t( 'Manage comments on all posts' ),
+			'manage_own_post_comments' => _t( 'Manage comments on one\'s own posts' ),
+			'manage_tags' => _t( 'Manage tags' ),
+			'manage_options' => _t( 'Manage options' ),
+			'manage_theme' => _t( 'Change theme' ),
+			'manage_theme_config' => _t( 'Configure the active theme' ),
+			'manage_plugins' => _t( 'Activate/deactivate plugins' ),
+			'manage_plugins_config' => _t( 'Configure active plugins' ),
+			'manage_import' => _t( 'Use the importer' ),
+			'manage_users' => _t( 'Add, remove, and edit users' ),
+			'manage_self' => _t( 'Edit own profile' ),
+			'manage_groups' => _t( 'Manage groups and permissions' ),
+			'manage_logs' => _t( 'Manage logs' ),
+			'manage_dash_modules' => _t( 'Manage dashboard modules' ),
+			// content tokens
+			'own_posts' => _t( 'Permissions on one\'s own posts' ),
+			'post_any' => _t( 'Permissions to all posts' ),
+			'post_unpublished' => _t( 'Permissions to other user\'s unpublished posts' ),
+			'comment' => _t( 'Make comments on any post' ),
+		);
+
+		// content tokens
+		foreach ( Post::list_active_post_types() as $name => $posttype ) {
+			$label = MultiByte::strtolower( Plugins::filter( 'post_type_display', $name, 'singular' ) );
+			$desc['post_' . Utils::slugify( $name )] = _t('Permissions to posts of type "%s"', array( $label ) );
+		}
+		return isset( $desc[$token] ) ? $desc[$token] : $token;
+
+	}
+
+	/**
+	 * function _filter_token_group_display
+	 * Filter to localize token group name
+	 * @param string Original group name of the token
+	 * @return string The localized token group name
+	 */
+	public static function _filter_token_group_display( $group )
+	{
+		$groups = array(
+			'Super User' => _t( 'Super User' ),
+			'Administration' => _t( 'Administration' ),
+			'Content' => _t( 'Content' ),
+			'Comments'=> _t( 'Comments' ),
+		);
+		return isset( $groups[$group] ) ? $groups[$group] : $group;
+
+	}
+
+	/**
+	 * function _filter_permission_display
+	 * Filter to localize permission names
+	 * @param string Original name
+	 * @return string The localized permission name
+	 */
+	public static function _filter_permission_display( $permission )
+	{
+		$name = array(
+		    'read' => _t( 'read' ),
+		    'create' => _t( 'create' ),
+		    'edit' => _t( 'edit' ),
+		    'delete' => _t( 'delete' ),
+		    'deny' => _t( 'deny' ),
+		    'allow' => _t( 'allow' ),
+		);
+		return isset( $name[$permission] ) ? $name[$permission] : $permission;
 	}
 
 }

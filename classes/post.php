@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  *
  * Includes an instance of the PostInfo class; for holding inforecords about a Post
@@ -26,9 +28,9 @@
  * @property string $input_formats A comma-separated list of descriptors of the stored format of this post content
  * @property integer $user_id The User id of the author of this post
  * @property integer $status The integer status of this post
- * @property HabariDateTime $pubdate The published date of this post
- * @property HabariDateTime $updated The last publicly-accessible updated date of this post
- * @property HabariDateTime $modified The last modified date of this post
+ * @property DateTime $pubdate The published date of this post
+ * @property DateTime $updated The last publicly-accessible updated date of this post
+ * @property DateTime $modified The last modified date of this post
  * @property integer $content_type The integer representation of the content type of this post
  * @property string $permalink The URL for this single post
  * @property string $statusname The string representation of the status of the post
@@ -370,9 +372,9 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			'input_formats' => '',
 			'user_id' => 0,
 			'status' => Post::status( 'draft' ),
-			'pubdate' => HabariDateTime::date_create(),
-			'updated' => HabariDateTime::date_create(),
-			'modified' => HabariDateTime::date_create(),
+			'pubdate' => DateTime::create(),
+			'updated' => DateTime::create(),
+			'modified' => DateTime::create(),
 			'content_type' => Post::type( 'entry' )
 		);
 	}
@@ -391,7 +393,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 
 		parent::__construct( $paramarray );
 		if ( isset( $this->fields['tags'] ) ) {
-			$this->tags_object = Terms::parse( $this->fields['tags'], 'Tag', Tags::vocabulary() );
+			$this->tags_object = Terms::parse( $this->fields['tags'], '\Habari\Tag', Tags::vocabulary() );
 			unset( $this->fields['tags'] );
 		}
 
@@ -405,7 +407,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public static function __static()
 	{
-		Pluggable::load_hooks('Post');
+		Pluggable::load_hooks(__CLASS__);
 	}
 
 	/**
@@ -603,12 +605,17 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public function insert()
 	{
-		$this->newfields['updated'] = HabariDateTime::date_create();
+		$this->newfields['updated'] = DateTime::create();
 		$this->newfields['modified'] = $this->newfields['updated'];
 		$this->setguid();
 		
-		if ( $this->pubdate->int > HabariDateTime::date_create()->int && $this->status == Post::status( 'published' ) ) {
+		// if the date is in the future and we are trying to publish the post, actually schedule it for posting later
+		if ( $this->pubdate > DateTime::create() && $this->status == Post::status( 'published' ) ) {
 			$this->status = Post::status( 'scheduled' );
+		}
+		// but if it's already scheduled and the date is not in the future, go ahead and publish it instead
+		else if ( $this->pubdate <= DateTime::create() && $this->status == Post::status( 'scheduled' ) ) {
+			$this->status = Post::status( 'published' );
 		}
 
 		$allow = true;
@@ -621,7 +628,8 @@ class Post extends QueryRecord implements IsContent, FormStorage
 
 		// Invoke plugins for all fields, since they're all "changed" when inserted
 		foreach ( $this->fields as $fieldname => $value ) {
-			Plugins::act( 'post_update_' . $fieldname, $this, ( $this->id == 0 ) ? null : $value, $this->$fieldname );
+			$fieldvalue = isset($this->newfields[$fieldname]) ? $this->newfields[$fieldname] : $this->fields[$fieldname];
+			Plugins::act( 'post_update_' . $fieldname, $this, ( $this->id == 0 ) ? null : $value, $fieldvalue );
 		}
 		// invoke plugins for status changes
 		Plugins::act( 'post_status_' . self::status_name( $this->status ), $this, null );
@@ -654,7 +662,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public function update( $minor = true )
 	{
-		$this->modified = HabariDateTime::date_create();
+		$this->modified = DateTime::create();
 		if ( ! $minor && $this->status != Post::status( 'draft' ) ) {
 			$this->updated = $this->modified;
 		}
@@ -663,8 +671,13 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			unset( $this->newfields['guid'] );
 		}
 		
-		if ( $this->pubdate->int > HabariDateTime::date_create()->int && $this->status == Post::status( 'published' ) ) {
+		// if the date is in the future and we are trying to publish the post, actually schedule it for posting later
+		if ( $this->pubdate > DateTime::create() && $this->status == Post::status( 'published' ) ) {
 			$this->status = Post::status( 'scheduled' );
+		}
+		// but if it's already scheduled and the date is not in the future, go ahead and publish it instead
+		else if ( $this->pubdate <= DateTime::create() && $this->status == Post::status( 'scheduled' ) ) {
+			$this->status = Post::status( 'published' );
 		}
 
 		$allow = true;
@@ -683,11 +696,29 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			}
 		}
 
+		// If content has changed, update cached_content with prerendered content
+		if(isset($this->newfields['content']) && $this->fields['content'] != $this->newfields['content']) {
+			$this->newfields['cached_content'] = Plugins::filter( 'post_prerender_content', $this->newfields['content'], $this );
+		}
+
 		// invoke plugins for all fields which have been changed
 		// For example, a plugin action "post_update_status" would be
 		// triggered if the post has a new status value
+		$change_date = DateTime::create()->sql;
 		foreach ( $this->newfields as $fieldname => $value ) {
 			Plugins::act( 'post_update_' . $fieldname, $this, $this->fields[$fieldname], $value );
+			if($this->fields[$fieldname] != $value) {
+				DB::insert(
+					'{revisions}',
+					array(
+						'post_id' => $this->fields['id'],
+						'change_field' => $fieldname,
+						'old_value' => $this->fields[$fieldname],
+						'user_id' => User::identify()->id,
+						'change_date' => $change_date,
+					)
+				);
+			}
 		}
 
 		// invoke plugins for status changes
@@ -766,7 +797,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		Plugins::act( 'post_publish_before', $this );
 
 		if ( $this->status != Post::status( 'scheduled' ) ) {
-			$this->pubdate = HabariDateTime::date_create();
+			$this->pubdate = DateTime::create();
 		}
 
 		if ( $this->status == Post::status( 'scheduled' ) ) {
@@ -803,6 +834,19 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		}
 
 		switch ( $name ) {
+			case 'content':
+				if($filter == 'internal') {
+					$out = parent::__get( 'content' );
+				}
+				else {
+					$out = parent::__get( 'cached_content' );
+					// Didn't bother to store a cached version? Run the prerender filter on the raw version.
+					if(empty($out)) {
+						$out = Plugins::filter( "post_prerender_content", parent::__get( 'content' ), $this );
+						// Queue rendered content for writing to cached_content field?
+					}
+				}
+				break;
 			case 'statusname':
 				$out = self::status_name( $this->status );
 				break;
@@ -869,8 +913,8 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			case 'pubdate':
 			case 'updated':
 			case 'modified':
-				if ( !( $value instanceOf HabariDateTime ) ) {
-					$value = HabariDateTime::date_create( $value );
+				if ( !( $value instanceOf DateTime ) ) {
+					$value = DateTime::create( $value );
 				}
 				break;
 			case 'tags':
@@ -881,7 +925,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 					return $this->tags_object = new Terms($value);
 				}
 				else {
-					return $this->tags_object = Terms::parse( $value, 'Term', Tags::vocabulary() );
+					return $this->tags_object = Terms::parse( $value, '\Habari\Term', Tags::vocabulary() );
 				}
 			case 'status':
 				return $this->setstatus( $value );
@@ -898,17 +942,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	public function __call( $name, $args )
 	{
 		array_unshift( $args, 'post_call_' . $name, null, $this );
-		return call_user_func_array( array( 'Plugins', 'filter' ), $args );
-	}
-
-	/**
-	 * A field accessor that doesn't filter, for use in plugins that filter field values
-	 * @param string $name Name of the field to get
-	 * @return mixed Value of the field, unfiltered
-	 */
-	public function get_raw_field( $name )
-	{
-		return parent::__get( $name );
+		return call_user_func_array( Method::create( '\\Habari\\Plugins', 'filter' ), $args );
 	}
 
 	/**
@@ -918,57 +952,60 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public function get_form( $context )
 	{
-		$form = new FormUI( 'create-content' );
-		$form->class[] = 'create';
+		/** @var FormUI $form  */
+		$form = new FormUI( 'create-content', null, array('class' => array('create')) );
+		$form->set_wrap_each('<div class="container">%s</div>');
 
 		$newpost = ( 0 === $this->id );
 
 		// If the post has already been saved, add a link to its permalink
 		if ( !$newpost ) {
-			$post_links = $form->append( 'wrapper', 'post_links' );
+			/** @var FormControlWrapper $post_links  */
+			$post_links = $form->append( FormControlWrapper::create('post_links', null, array('class' => 'container')) );
 			$permalink = ( $this->status != Post::status( 'published' ) ) ? $this->permalink . '?preview=1' : $this->permalink;
-			$post_links->append( 'static', 'post_permalink', '<a href="'. $permalink .'" class="viewpost" >'.( $this->status != Post::status( 'published' ) ? _t( 'Preview Post' ) : _t( 'View Post' ) ).'</a>' );
-			$post_links->class ='container';
+			$post_links->append( FormControlStatic::create('post_permalink')->set_static('<a href="'. $permalink .'" class="viewpost" >'.( $this->status != Post::status( 'published' ) ? _t( 'Preview Post' ) : _t( 'View Post' ) ).'</a>') );
 		}
 
 		// Store this post instance into a hidden field for later use when saving data
-		$form->append( 'hidden', 'post', $this, _t( 'Title' ), 'admincontrol_text' );
+		$form->append( FormControlData::create('post')->set_value($this) );
 
 		// Create the Title field
-		$form->append( 'text', 'title', 'null:null', _t( 'Title' ), 'admincontrol_text' );
-		$form->title->class[] = 'important';
-		$form->title->class[] = 'check-change';
-		$form->title->tabindex = 1;
-		$form->title->value = $this->title_internal;
+		$form->append( FormControlLabel::wrap(_t('Title'), FormControlText::create('title', null, array('class' => array('check-change full-width'), 'tabindex' => 1))->set_value($this->title_internal)) );
 
 		// Create the silos
 		if ( count( Plugins::get_by_interface( 'MediaSilo' ) ) ) {
-			$form->append( 'silos', 'silos' );
-			$form->silos->silos = Media::dir();
+			$form->append( FormControlSilos::create('silos') );
 		}
 
 		// Create the Content field
-		$form->append( 'textarea', 'content', 'null:null', _t( 'Content' ), 'admincontrol_textarea' );
-		$form->content->class[] = 'resizable';
-		$form->content->class[] = 'check-change';
-		$form->content->tabindex = 2;
-		$form->content->value = $this->content_internal;
-		$form->content->raw = true;
+		$form->append( FormControlLabel::wrap( _t('Content'), FormControlTextArea::create('content', null, array('class' => array('resizable', 'check-change full-width rte'), 'tabindex' => 2))->set_value($this->content_internal)) );
+		$form->content->raw = true;  // @todo What does this do?
 
 		// Create the tags field
-		$form->append( 'text', 'tags', 'null:null', _t( 'Tags, separated by, commas' ), 'admincontrol_text' );
-		$form->tags->class = 'check-change';
-		$form->tags->tabindex = 3;
+		/** @var FormControlAutocomplete $tags_control */
+		$form->append(
+			FormControlLabel::wrap(
+				_t( 'Tags, separated by, commas' ),
+				$tags_control = FormControlAutocomplete::create(
+					'tags',
+					null,
+					array('style' => 'width:100%;margin:0px 0px 20px;', 'class' => 'check-change full-width', 'tabindex' => 3),
+					array('allow_new' => true, 'init_selection' => true)
+				)
+			)->set_properties(array('style' => 'width:100%;margin:0px 0px 20px;'))
+		);
 
 		$tags = (array)$this->get_tags();
 		array_walk($tags, function(&$element, $key) {
 			$element->term_display = MultiByte::strpos( $element->term_display, ',' ) === false ? $element->term_display : $element->tag_text_searchable;
 		});
 
-		$form->tags->value = implode( ', ', $tags );
+		$tags_control->set_value(implode( ',', $tags ));
+		$tags_control->set_ajax(URL::auth_ajax('tag_list'));
 
 		// Create the splitter
-		$publish_controls = $form->append( 'tabs', 'publish_controls' );
+		/** @var FormControlTabs $publish_controls  */
+		$publish_controls = $form->append( FormControlTabs::create('publish_controls')->set_setting('wrap', '%s')->set_setting('class_each', 'container') );
 
 		// Create the publishing controls
 		// pass "false" to list_post_statuses() so that we don't include internal post statuses
@@ -976,60 +1013,84 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		unset( $statuses[array_search( 'any', $statuses )] );
 		$statuses = Plugins::filter( 'admin_publish_list_post_statuses', $statuses );
 
-		$settings = $publish_controls->append( 'fieldset', 'settings', _t( 'Settings' ) );
+		/** @var FormControlFieldset $settings */
+		$settings = $publish_controls->append( FormControlFieldset::create('post_settings')->set_caption(_t( 'Settings' )) );
 
-		$settings->append( 'select', 'status', 'null:null', _t( 'Content State' ), array_flip( $statuses ), 'tabcontrol_select' );
-		$settings->status->value = $this->status;
+		$settings->append( FormControlLabel::wrap(_t( 'Content State' ), FormControlSelect::create('status')->set_options(array_flip( $statuses ))->set_value($this->status)));
 
 		// hide the minor edit checkbox if the post is new
 		if ( $newpost ) {
-			$settings->append( 'hidden', 'minor_edit', 'null:null' );
-			$settings->minor_edit->value = false;
+			$settings->append( FormControlData::create('minor_edit')->set_value(false));
 		}
 		else {
-			$settings->append( 'checkbox', 'minor_edit', 'null:null', _t( 'Minor Edit' ), 'tabcontrol_checkbox' );
-			$settings->minor_edit->value = true;
-			$form->append( 'hidden', 'modified', 'null:null' )->value = $this->modified;
+			$settings->append( FormControlLabel::wrap( _t( 'Minor Edit' ), FormControlCheckbox::create('minor_edit')->set_value(true)));
+			$form->append( FormControlData::create('modified')->set_value($this->modified));
 		}
 
-		$settings->append( 'checkbox', 'comments_enabled', 'null:null', _t( 'Comments Allowed' ), 'tabcontrol_checkbox' );
-		$settings->comments_enabled->value = $this->info->comments_disabled ? false : true;
+		$settings->append( FormControlLabel::wrap(_t( 'Comments Allowed' ), FormControlCheckbox::create('comments_enabled')->set_value($this->info->comments_disabled ? false : true)));
 
-		$settings->append( 'text', 'pubdate', 'null:null', _t( 'Publication Time' ), 'tabcontrol_text' );
-		$settings->pubdate->value = $this->pubdate->format( 'Y-m-d H:i:s' );
-		$settings->pubdate->helptext = _t( 'YYYY-MM-DD HH:MM:SS' );
+		$settings->append( FormControlLabel::wrap(_t( 'Publication Time' ), FormControlText::create('pubdate')->set_value($this->pubdate->format( 'Y-m-d H:i:s' ))));
+		$settings->pubdate->set_helptext( _t( 'YYYY-MM-DD HH:MM:SS' ) );
 
-		$settings->append( 'hidden', 'updated', 'null:null' );
-		$settings->updated->value = $this->updated->int;
+		$settings->append( FormControlData::create('updated')->set_value($this->updated->int) );
 
-		$settings->append( 'text', 'newslug', 'null:null', _t( 'Content Address' ), 'tabcontrol_text' );
-		$settings->newslug->id = 'newslug';
-		$settings->newslug->value = $this->slug;
+		$settings->append( FormControlLabel::wrap(_t( 'Content Address' ), FormControlText::create('newslug')->set_value($this->slug) ));
 
 		// Create the button area
-		$buttons = $form->append( 'fieldset', 'buttons' );
-		$buttons->template = 'admincontrol_buttons';
-		$buttons->class[] = 'container';
-		$buttons->class[] = 'buttons';
-		$buttons->class[] = 'publish';
+		$buttons = $form->append( FormControlFieldset::create('buttons', null, array('class' => array('container', 'buttons', 'publish'))) );
 
-		// Create the Save button
+		// What buttons should we have?
 		$require_any = array( 'own_posts' => 'create', 'post_any' => 'create', 'post_' . Post::type_name( $this->content_type ) => 'create' );
-		if ( ( $newpost && User::identify()->can_any( $require_any ) ) || ( !$newpost && ACL::access_check( $this->get_access(), 'edit' ) ) ) {
-			$buttons->append( 'submit', 'save', _t( 'Save' ), 'admincontrol_submit' );
-			$buttons->save->tabindex = 4;
+		$show_buttons = array();
+		if($newpost) {
+			if(User::identify()->can_any( $require_any )) {
+				$show_buttons['save'] = true;
+				$show_buttons['publish'] = true;
+			}
+		}
+		else {
+			if(ACL::access_check( $this->get_access(), 'edit' )) {
+				if($this->status == Post::status('draft')) {
+					$show_buttons['publish'] = true;
+				}
+				$show_buttons['save'] = true;
+			}
+			if(ACL::access_check( $this->get_access(), 'delete' )) {
+				$show_buttons['delete'] = true;
+			}
+		}
+		$show_buttons = Plugins::filter('publish_form_buttons', $show_buttons, $this);
+
+		if(isset($show_buttons['delete'])) {
+			// Create the Delete button
+			$buttons->append(
+				FormControlSubmit::create('delete', null, array('tabindex' => 4, 'class'=>'three columns'))
+					->set_caption( _t( 'Delete' ) )
+					->on_success(array($this, 'form_publish_delete'))
+			);
+		}
+		if(isset($show_buttons['save'])) {
+			// Create the Save button
+			$buttons->append(
+				FormControlSubmit::create('save', null, array('tabindex' => 4, 'class'=>'three columns'))
+					->set_caption( _t( 'Save' ) )
+			);
+		}
+		if(isset($show_buttons['publish'])) {
+			// Create the Publish button
+			$buttons->append(
+				FormControlSubmit::create('publish', null, array('tabindex' => 4, 'class'=>'three columns'))
+					->set_caption( _t( 'Publish' ) )
+					->add_validator(function($value, FormControlSubmit $control, FormUI $form){
+						$form->status->set_value(Post::status('published'));
+					})
+			);
 		}
 
 		// Add required hidden controls
-		$form->append( 'hidden', 'content_type', 'null:null' );
-		$form->content_type->id = 'content_type';
-		$form->content_type->value = $this->content_type;
-		$form->append( 'hidden', 'post_id', 'null:null' );
-		$form->post_id->id = 'id';
-		$form->post_id->value = $this->id;
-		$form->append( 'hidden', 'slug', 'null:null' );
-		$form->slug->value = $this->slug;
-		$form->slug->id = 'originalslug';
+		$form->append( FormControlData::create('content_type', null, array('id' => 'content_type'))->set_value($this->content_type) );
+		$form->append( FormControlData::create('post_id', null, array('id' => 'id'))->set_value($this->id) );
+		$form->append( FormControlData::create('slug', null, array('id' => 'originalslug'))->set_value($this->slug) );
 
 		$form->on_success(array($this, 'form_publish_success'));
 
@@ -1042,13 +1103,17 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		return $form;
 	}
 
+	/**
+	 * Called when the publish form is successfully submitted
+	 * @param FormUI $form
+	 */
 	public function form_publish_success( FormUI $form )
 	{
 		$user = User::identify();
 
 		// Get the Post object from the hidden 'post' control on the form
 		/** @var Post $post */
-		$post = $form->post->storage;
+		$post = $form->post->value;
 
 		// Do some permission checks
 		// @todo REFACTOR: These probably don't work and should be refactored to use validators on the form fields instead
@@ -1063,7 +1128,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		if ( $form->content_type->value != $post->content_type && ( $user->cannot( $type ) || ! $user->can_any( array( 'own_posts' => 'edit', 'post_any' => 'edit', $type => 'edit' ) ) ) ) {
 			Session::error( _t( 'Changing content types is not allowed' ) );
 			// @todo This isn't ideal at all, since it loses all of the changes...
-			Utils::redirect( URL::get( 'admin', 'page=publish&id=' . $post->id ) );
+			Utils::redirect( URL::get( 'display_publish', $post, false ) );
 			exit;
 		}
 
@@ -1073,7 +1138,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			$type = 'post_'  . Post::type_name( $form->content_type->value );
 			if ( ACL::user_cannot( $user, $type ) || ( ! ACL::user_can( $user, 'post_any', 'create' ) && ! ACL::user_can( $user, $type, 'create' ) ) ) {
 				Session::error( _t( 'Creating that post type is denied' ) );
-				Utils::redirect( URL::get( 'admin', 'page=publish&id=' . $post->id ) );
+				Utils::redirect( URL::get( 'display_publish', $post, false) );
 				exit;
 			}
 
@@ -1086,14 +1151,14 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			$type = 'post_'  . Post::type_name( $form->content_type->value );
 			if ( ! ACL::access_check( $post->get_access(), 'edit' ) ) {
 				Session::error( _t( 'Editing that post type is denied' ) );
-				Utils::redirect( URL::get( 'admin', 'page=publish&id=' . $post->id ) );
+				Utils::redirect( URL::get( 'display_publish', $post, false) );
 				exit;
 			}
 
 			// Verify that the post hasn't already been updated since the form was loaded
 			if ( $post->modified != $form->modified->value ) {
 				Session::notice( _t( 'The post %1$s was updated since you made changes.  Please review those changes before overwriting them.', array( sprintf( '<a href="%1$s">\'%2$s\'</a>', $post->permalink, Utils::htmlspecialchars( $post->title ) ) ) ) );
-				Utils::redirect( URL::get( 'admin', 'page=publish&id=' . $post->id ) );
+				Utils::redirect( URL::get( 'display_publish', $post, false ) );
 				exit;
 			}
 
@@ -1104,18 +1169,23 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			}
 		}
 
-		// if not previously published and the user wants to publish now, change the pubdate to the current date/time unless a date has been explicitly set
+		// sometimes we want to overwrite the published date with the current date, if:
+		//		1) the post was not previously published
+		//		2) the post is now supposed to be published
+		//		3) the user has not entered a specific publish date already -- that is, the one on the form that was submitted is the same as the currently saved one
+		//		AND
+		//		4) the published date is NOT in the future -- if it were, we would reset the date on scheduled posts if we edit them again before they are published
 		if ( ( $post->status != Post::status( 'published' ) )
 			&& ( $form->status->value == Post::status( 'published' ) )
-			&& ( HabariDateTime::date_create( $form->pubdate->value )->int == $form->updated->value )
+			&& ( $post->pubdate == DateTime::create( $form->pubdate->value )
+			&& ( $post->pubdate <= DateTime::create() ) )
 		) {
-			$post->pubdate = HabariDateTime::date_create();
+			$post->pubdate = DateTime::create();
 		}
-		// else let the user change the publication date.
-		//  If previously published and the new date is in the future, the post will be unpublished and scheduled. Any other status, and the post will just get the new pubdate.
-		// This will result in the post being scheduled for future publication if the date/time is in the future and the new status is published.
+		// otherwise, the post may not be changing to a published state, they may have specified something new, or the date may be in the future for a scheduled post. it doesn't matter, we'll use what was submitted
+		// if it's in the future, it will get scheduled later in insert() or update()
 		else {
-			$post->pubdate = HabariDateTime::date_create( $form->pubdate->value );
+			$post->pubdate = DateTime::create( $form->pubdate->value );
 		}
 
 		// Minor updates are when the user has checked the minor update box and the post isn't in draft or new
@@ -1154,8 +1224,23 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		$form->save();
 
 		$permalink = ( $post->status != Post::status( 'published' ) ) ? $post->permalink . '?preview=1' : $post->permalink;
-		Session::notice( _t( 'The post %1$s has been saved as %2$s.', array( sprintf( '<a href="%1$s">\'%2$s\'</a>', $permalink, Utils::htmlspecialchars( $post->title ) ), Post::status_name( $post->status ) ) ) );
-		Utils::redirect( URL::get( 'admin', 'page=publish&id=' . $post->id ) );
+		$postname = sprintf( '<a href="%1$s">\'%2$s\'</a>', $permalink, Utils::htmlspecialchars( $post->title ) );
+		$status = Post::status_name( $post->status );
+		Session::notice( _t( 'The post !postname has been saved as !status.', array( '!postname' => $postname, '!status' => $status ) ) );
+		Utils::redirect( URL::get( 'display_publish', $post, false) );
+	}
+
+	/**
+	 * The on_success handler for the delete button on the post editing form
+	 * @param FormUI $form The submitted post editing form
+	 */
+	public function form_publish_delete(FormUI $form) {
+		$post = $form->post->value;
+		if ( ACL::access_check( $post->get_access(), 'delete' ) ) {
+			$post->delete();
+			Session::notice( _t( 'Deleted the %1$s titled "%2$s".', array( Post::type_name( $post->content_type ), Utils::htmlspecialchars( $post->title ) ) ) );
+		}
+		Utils::redirect( URL::get( 'display_posts', 'type=' . $post->content_type ) );
 	}
 
 
@@ -1174,14 +1259,8 @@ class Post extends QueryRecord implements IsContent, FormStorage
 		$commenter_url = '';
 		$commenter_content = '';
 		$user = User::identify();
-		if ( isset( $_SESSION['comment'] ) ) {
-			$details = Session::get_set( 'comment' );
-			$commenter_name = $details['name'];
-			$commenter_email = $details['email'];
-			$commenter_url = $details['url'];
-			$commenter_content = $details['content'];
-		}
-		elseif ( $user->loggedin ) {
+
+		if ( $user->loggedin ) {
 			$commenter_name = $user->displayname;
 			$commenter_email = $user->email;
 			$commenter_url = Site::get_url( 'habari' );
@@ -1198,95 +1277,96 @@ class Post extends QueryRecord implements IsContent, FormStorage
 
 		// Now start the form.
 		$form = new FormUI( 'comment-' . $context, 'comment' );
-		$form->class[] = $context;
-		$form->class[] = 'commentform';
+		$form->add_class($context);
+		$form->add_class('commentform');
+		$form->set_wrap_each('<div>%s</div>');
+		$form->set_setting('use_session_errors', true);
 
 		// Enforce commenting rules
 		if(Options::get('comments_disabled')) {
 			$form->append(new FormControlStatic('message', _t('Comments are disabled site-wide.')));
 			$form->class[] = 'comments_disabled';
-			$form->set_option( 'form_action', '/' );
+			$form->set_properties( array('action' => '/') );
 		}
 		elseif($this->info->comments_disabled) {
 			$form->append(new FormControlStatic('message', _t('Comments for this post are disabled.')));
 			$form->class[] = 'comments_disabled';
-			$form->set_option( 'form_action', '/' );
+			$form->set_properties( array('action' => '/') );
 		}
-		elseif(Options::get('comments_require_logon') && !User::identify()->loggedin) {
+		elseif(Options::get('comments_require_logon') && !$user->loggedin) {
 			$form->append(new FormControlStatic('message', _t('Commenting on this site requires authentication.')));
 			$form->class[] = 'comments_require_logon';
-			$form->set_option( 'form_action', '/' );
+			$form->set_properties( array('action' => '/') );
 		}
-		elseif(User::identify()->cannot('comment')) {
+		elseif(!$user->can('comment')) {
 			$form->append(new FormControlStatic('message', _t('You do not have permission to comment on this site.')));
 			$form->class[] = 'comments_require_permission';
-			$form->set_option( 'form_action', '/' );
+			$form->set_properties( array('action' => '/') );
 		}
 		else {
 
-			$form->set_option( 'form_action', URL::get( 'submit_feedback', array( 'id' => $this->id ) ) );
+			$form->set_properties(array('action' => URL::get( 'submit_feedback', array( 'id' => $this->id ) ) ) );
 
 			// Create the Name field
 			$form->append(
-				'text',
-				'cf_commenter',
-				'null:null',
-				_t( 'Name <span class="required">*Required</span>' ),
-				'formcontrol_text'
-			)->add_validator( 'validate_required', _t( 'The Name field value is required' ) )
-			->id = 'comment_name';
-			$form->cf_commenter->tabindex = 1;
-			$form->cf_commenter->value = $commenter_name;
+				FormControlLabel::wrap(_t( 'Name <span class="required">*Required</span>' ), FormControlText::create(
+						'cf_commenter', 'null:null',
+						array(
+							'id' => 'comment_name',
+							'tabindex' => 1,
+							'required' => 'required',
+						)
+					)->add_validator( 'validate_required', _t( 'The Name field value is required' ) )
+				)
+			);
 
 			// Create the Email field
 			$form->append(
-				'text',
-				'cf_email',
-				'null:null',
-				_t( 'Email' ),
-				'formcontrol_text'
-			)->add_validator( 'validate_email', _t( 'The Email field value must be a valid email address' ) )
-			->id = 'comment_email';
-			$form->cf_email->type = 'email';
-			$form->cf_email->tabindex = 2;
+				$cf_email = FormControlText::create('cf_email', 'null:null', array(
+						'id' => 'comment_email',
+						'type' => 'email',
+						'tabindex' => 2
+				))->add_validator('validate_email', _t('The Email field value must be a valid email address'))
+			);
 			if ( Options::get( 'comments_require_id' ) == 1 ) {
-				$form->cf_email->add_validator(  'validate_required', _t( 'The Email field value must be a valid email address' ) );
-				$form->cf_email->caption = _t( 'Email <span class="required">*Required</span>' );
+				$cf_email->add_validator(  'validate_required', _t( 'The Email field value must be a valid email address' ) );
+				$cf_email->label( _t( 'Email <span class="required">*Required</span>' ) );
+				$cf_email->set_property("required", "required");
 			}
-			$form->cf_email->value = $commenter_email;
+			else {
+				$cf_email->label(_t('Email'));
+			}
+			$cf_email->set_value($commenter_email);
 
 			// Create the URL field
 			$form->append(
-				'text',
-				'cf_url',
-				'null:null',
-				_t( 'Website' ),
-				'formcontrol_text'
-			)->add_validator( 'validate_url', _t( 'The Website field value must be a valid URL' ) )
-			->id = 'comment_url';
-			$form->cf_url->type = 'url';
-			$form->cf_url->tabindex = 3;
+				FormControlLabel::wrap(_t('Website'), FormControlText::create('cf_url', 'null:null', array(
+					'id' => 'comment_url',
+					'tabindex' => 3,
+					'type' => 'url'
+				)))->add_validator( 'validate_url', _t( 'The Website field value must be a valid URL' ) )
+
+			);
 			$form->cf_url->value = $commenter_url;
 
 			// Create the Comment field
 			$form->append(
-				'text',
-				'cf_content',
-				'null:null',
-				_t( 'Comment' ),
-				'formcontrol_textarea'
-			)->add_validator( 'validate_required', _t( 'The Comment field value is required' ) )
-			->id = 'comment_content';
-			$form->cf_content->tabindex = 4;
+				FormControlTextArea::create('cf_content', 'null:null', array(
+					'id' => 'comment_content',
+					'tabindex' => 4,
+					'required' => 'required'
+				))->add_validator( 'validate_required', _t( 'The Comment field value is required' ) )
+				->label(_t('Content'))
+			);
 			$form->cf_content->value = $commenter_content;
 
 			// Create the Submit button
-			$form->append( 'submit', 'cf_submit', _t( 'Submit' ), 'formcontrol_submit' );
-			$form->cf_submit->tabindex = 5;
-		}
 
-		// Let plugins alter this form
-		Plugins::act( 'form_comment', $form, $this, $context );
+			$form->append( FormControlSubmit::create('cf_submit')->set_properties(array('value' => _t('Submit'), 'tabindex' => 5)));
+
+			// Let plugins alter this form
+			Plugins::act( 'form_comment', $form, $this, $context );
+		}
 
 		// Return the form object
 		return $form;
@@ -1340,7 +1420,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	private function get_editlink()
 	{
-		return URL::get( 'admin', 'page=publish&id=' . $this->id );
+		return URL::get( 'display_publish', $this, false );
 	}
 
 	/**
@@ -1438,7 +1518,8 @@ class Post extends QueryRecord implements IsContent, FormStorage
 			$arr = array( 'content_type_name' => Post::type_name( $this->content_type ) );
 			$author = URL::extract_args( $this->author, 'author_' );
 			$info = URL::extract_args( $this->info, 'info_' );
-			$this->url_args = array_merge( $author, $info, $arr, $this->pubdate->getdate() );
+			$url_args = array_merge( $author, $info, $arr, $this->pubdate->getdate() );
+			$this->url_args = Plugins::filter('post_url_args', $url_args, $this);
 		}
 		return array_merge($this->url_args, parent::get_url_args());
 	}
@@ -1496,7 +1577,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	{
 		$this->get_tokens();
 		$tokens = Utils::single_array( $tokens );
-		$tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 		$tokens = array_intersect( $tokens, $this->tokens );
 		if ( count( $tokens ) == 0 ) {
 			return false;
@@ -1512,7 +1593,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	{
 		$this->get_tokens();
 		$tokens = Utils::single_array( $tokens );
-		$tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 		$tokens = array_filter($tokens);
 		$add_tokens = array_diff( $tokens, $this->tokens );
 		$add_tokens = array_unique( $add_tokens );
@@ -1540,7 +1621,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	{
 		$this->get_tokens();
 		$tokens = Utils::single_array( $tokens );
-		$tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 		$remove_tokens = array_intersect( $tokens, $this->tokens );
 		foreach ( $remove_tokens as $token_id ) {
 			DB::delete( '{post_tokens}', array( 'post_id' => $this->id, 'token_id' => $token_id ) );
@@ -1555,7 +1636,7 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	public function set_tokens( $tokens )
 	{
 		$tokens = Utils::single_array( $tokens );
-		$new_tokens = array_map( array( 'ACL', 'token_id' ), $tokens );
+		$new_tokens = array_map( Method::create( '\Habari\ACL', 'token_id' ), $tokens );
 		$new_tokens = array_unique( $new_tokens );
 		DB::delete( '{post_tokens}', array( 'post_id' => $this->id ) );
 		foreach ( $new_tokens as $token_id ) {
@@ -1585,12 +1666,22 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public function get_access( $user = null )
 	{
+		static $cached_access = array();
+
 		if ( ! $user instanceof User ) {
 			$user = User::identify();
 		}
 
+		if(!isset($access[$this->id])) {
+			$cached_access[$this->id] = array();
+		}
+		if(isset($cached_access[$this->id][$user->id])) {
+			return $cached_access[$this->id][$user->id];
+		}
+
 		if ( $user->can( 'super_user' ) ) {
-			return ACL::get_bitmask( 'full' );
+			$cached_access[$this->id][$user->id] = ACL::get_bitmask( 'full' );
+			return $cached_access[$this->id][$user->id];
 		}
 
 		// Collect a list of applicable tokens
@@ -1616,9 +1707,60 @@ class Post extends QueryRecord implements IsContent, FormStorage
 
 		// now that we have all the accesses, loop through them to build the access to the particular post
 		if ( in_array( 0, $token_accesses ) ) {
-			return ACL::get_bitmask( 0 );
+			$cached_access[$this->id][$user->id] = ACL::get_bitmask( 0 );
+			return $cached_access[$this->id][$user->id];
 		}
-		return ACL::get_bitmask( Utils::array_or( $token_accesses ) );
+		$cached_access[$this->id][$user->id] = ACL::get_bitmask( Utils::array_or( $token_accesses ) );
+		return $cached_access[$this->id][$user->id];
+	}
+
+	/**
+	 * Get the fields of the post that differ from what is stored by date
+	 * @param DateTime|string|int $date The date to fetch the revision of
+	 * @return array An array of field data for the post with the values of those fields at the specified date
+	 */
+	public function get_revision_data($date) {
+		$sql = <<< GET_REVISION_DATA
+SELECT
+id, post_id, change_field, old_value, user_id, min(change_date) as change_date
+FROM {revisions}
+WHERE
+post_id = :post_id
+AND change_date > :rev_date
+GROUP BY change_field
+ORDER BY change_date;
+GET_REVISION_DATA;
+
+		return DB::get_results($sql, array('post_id' => $this->id, 'rev_date' => DateTime::create($date)->sql));
+	}
+
+	/**
+	 * List the stored revisions of this post by date and user id
+	 * @return array
+	 */
+	public function list_revisions() {
+		$sql = <<< LIST_REVISIONS
+SELECT DISTINCT
+change_date, user_id
+FROM {revisions}
+WHERE post_id = :post_id;
+LIST_REVISIONS;
+
+		return DB::get_keyvalue($sql, array('post_id' => $this->id));
+	}
+
+	/**
+	 * Set this post to have the same data as the post on the specified date
+	 * @param DateTime|string|int $date The date to fetch the revision of
+	 */
+	public function set_revision($date) {
+		$rev_data = $this->get_revision_data($date);
+		foreach($rev_data as $field) {
+			if(isset($this->fields[$field->change_field])) {
+				$this->newfields[$field->change_field] = $field->old_value;
+			}
+		}
+		Plugins::act('set_revision_field', $this, $rev_data);
 	}
 
 	/**
@@ -1684,8 +1826,26 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 */
 	public function field_save( $key, $value )
 	{
-		$this->info->$key = Plugins::filter('post_field_save', $value, $key);
-		$this->info->commit();
+		$field_value = Plugins::filter('post_field_save', $value, $key);
+		$default_fields = self::default_fields();
+		if(isset($default_fields[$key])) {
+			$this->$key = $field_value;
+		}
+		else {
+			$this->info->$key = $field_value;
+		}
+		$self = $this;
+		Session::queue(
+			function() use($self) {
+				if($self->id == 0) {
+					$self->insert();
+				}
+				else {
+					$self->update();
+				}
+			},
+			$this
+		);
 	}
 
 
@@ -1696,7 +1856,15 @@ class Post extends QueryRecord implements IsContent, FormStorage
 	 * @return mixed The stored value returned
 	 */
 	function field_load( $key ) {
-		return Plugins::filter('post_field_load', $this->info->$key, $key);
+		$default_fields = self::default_fields();
+		if(isset($default_fields[$key])) {
+			$field_value = $this->$key;
+		}
+		else {
+			$field_value = $this->info->$key;
+		}
+
+		return Plugins::filter('post_field_load', $field_value, $key);
 	}
 }
 ?>

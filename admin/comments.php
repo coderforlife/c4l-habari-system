@@ -1,3 +1,4 @@
+<?php namespace Habari; ?>
 <?php if ( !defined( 'HABARI_PATH' ) ) { die('No direct access'); } ?>
 <?php include('header.php'); ?>
 
@@ -11,7 +12,7 @@
 	<input type="hidden" id="password_digest" name="password_digest" value="<?php echo $wsse['digest']; ?>">
 
 <div class="container transparent item comments controls">
-	<span class="checkboxandselected pct30">
+	<span class="checkboxandselected">
 		<input type="checkbox" id="master_checkbox" name="master_checkbox" class="select_all">
 		<label class="selectedtext minor none" for="master_checkbox"><?php _e('None selected'); ?></label>
 	</span>
@@ -27,7 +28,7 @@
 	</ul>
 </div>
 
-<div id="comments" class="container manage comments">
+<div id="comments" class="container main manage comments">
 
 <?php $theme->display('comments_items'); ?>
 
@@ -35,7 +36,7 @@
 
 
 <div class="container transparent item comments controls">
-	<span class="checkboxandselected pct30">
+	<span class="checkboxandselected">
 		<input type="checkbox" id="master_checkbox_2" name="master_checkbox_2" class="select_all">
 		<label class="selectedtext minor none" for="master_checkbox_2"><?php _e('None selected'); ?></label>
 	</span>

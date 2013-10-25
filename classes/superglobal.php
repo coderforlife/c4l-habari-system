@@ -4,11 +4,13 @@
  *
  */
 
+namespace Habari;
+
 /**
  * SuperGlobals class
  *
  */
-class SuperGlobal extends ArrayIterator
+class SuperGlobal extends \ArrayIterator
 {
 	protected $values = array();
 	protected $raw_values = array();
@@ -16,7 +18,7 @@ class SuperGlobal extends ArrayIterator
 	public function __construct( $array )
 	{
 		if ( !is_array( $array ) && !$array instanceof SuperGlobal ) {
-			throw new Exception( 'Parameter must be array or SuperGlobal' );
+			throw new \Exception( 'Parameter must be array or SuperGlobal' );
 		}
 		parent::__construct( $array );
 	}
@@ -88,6 +90,19 @@ class SuperGlobal extends ArrayIterator
 			$this->raw_values[$index] = $cp[$index];
 			return $this->raw_values[$index];
 		}
+	}
+
+	/**
+	 * Return the raw, escaped value of the requested index.
+	 * We escape with htmletities with the ENT_QUOTE flag.
+	 *
+	 * @param mixed $index The index of the value
+	 * @return mixed The unfiltered value
+	 * @TODO When our requirement is bumped to PHP 5.4 change flag to ENT_QUOTES | ENT_HTML5
+	 */
+	public function escape( $index )
+	{
+		return htmlentities( $this->raw( $index ), ENT_QUOTES );
 	}
 	
 	/**
@@ -197,7 +212,7 @@ class SuperGlobal extends ArrayIterator
 					$ary->next();
 				}
 			}
-			elseif ( $ary instanceof ArrayObject || $ary instanceof ArrayIterator ) {
+			elseif ( $ary instanceof \ArrayObject || $ary instanceof \ArrayIterator ) {
 				$arycp = $ary->getArrayCopy();  // Don't trigger offsetGet for ArrayObject
 				foreach ( $arycp as $key => $value ) {
 					if ( is_numeric( $key ) ) {

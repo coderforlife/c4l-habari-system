@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Handles Rest requests, sending them to plugin sinks.
  *
@@ -22,7 +24,6 @@ class RestHandler extends ActionHandler
 		$matched_rule = Controller::get_matched_rule();
 		$hookfn = $matched_rule->parameters['hook'];
 		$result = call_user_func_array($hookfn, array($matched_rule->named_arg_values));
-		//Utils::debug($result);
 		
 		if(!$result instanceof RestResponse) {
 			$result = new RestResponse($result);

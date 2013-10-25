@@ -1,5 +1,7 @@
 <?php
 
+namespace Habari;
+
 /**
  * Base Query class for building new queries
  * @see Posts::get
@@ -374,6 +376,19 @@ class QueryWhere {
 	}
 
 	/**
+	 * Return the named expression from this QueryWhere
+	 * @param string $name The name provided for the expression
+	 * @return null|string|QueryWhere The requested expression
+	 */
+	public function get_named($name)
+	{
+		if(isset($this->expressions[$name])) {
+			return $this->expressions[$name];
+		}
+		return null;
+	}
+
+	/**
 	 * Shortcut to implementing an IN or equality test for one or more values as a new expression
 	 * @param $field
 	 * @param $values
@@ -396,7 +411,10 @@ class QueryWhere {
 			$in_elements = array();
 			if(is_callable($validator)) {
 				foreach($values as $value) {
-					$in_elements[] = $validator($value);
+					$newvalue = $validator($value);
+					if(!empty($newvalue)) {
+						$in_elements[] = $newvalue;
+					}
 				}
 			}
 			else {

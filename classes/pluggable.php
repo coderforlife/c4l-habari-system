@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Pluggable class
  * Implements methods that allow descendant classes to register functions to plugin hooks
@@ -39,8 +41,14 @@ abstract class Pluggable
 	final public function get_file()
 	{
 		if ( empty( $this->_class_name ) ) {
-			$class = new ReflectionClass( get_class( $this ) );
+			$class = new \ReflectionClass( get_class( $this ) );
 			$this->_class_name = $class->getFileName();
+			// is the file not within the Habari root?
+			if(strpos($this->_class_name, HABARI_PATH) == false) {
+				// Guess at where we really are using the xml file...
+				// Oh, we don't actually know that?
+				// Well, then you're just going to have to stop using symlinks, aren't you?
+			}
 		}
 		return $this->_class_name;
 	}
@@ -82,13 +90,14 @@ abstract class Pluggable
 
 	/**
 	 * Load a translation domain/file for this pluggable
+	 * @param string $domain The name of the domain to load
 	 * @return boolean true if data was successfully loaded, false otherwise
 	 */
 	public function load_text_domain( $domain )
 	{
 		$base_dir = realpath( dirname( $this->get_file() ) );
 
-		return HabariLocale::load_pluggable_domain( $domain, $base_dir );
+		return Locale::load_pluggable_domain( $domain, $base_dir );
 	}
 	
 	/**
@@ -309,7 +318,7 @@ abstract class Pluggable
 	 *
 	 * @param mixed $rule An old-style rewrite rule string, where quoted segments are literals and unquoted segments are variable names, OR a RewriteRule object
 	 * @param string $hook The suffix of the hook function: action_plugin_act_{$suffix}
-	 * #param Callback $fn A potential function/method to register directly to the newly created hook
+	 * @param Callback $fn A potential function/method to register directly to the newly created hook
 	 */
 	public function add_rule( $rule, $hook, $fn = null )
 	{
@@ -400,6 +409,7 @@ abstract class Pluggable
 	 */
 	public function upgrade()
 	{
+		// This call to Options::get() is suppressed because if the database options table isn't created, it fails.
 		if(DB::is_connected() && @ Options::get( 'installed' )) {
 			$pluggable_class = get_class($this);
 			$versions = Options::get( 'pluggable_versions' );
@@ -416,6 +426,32 @@ abstract class Pluggable
 				Options::set( 'pluggable_versions', $versions );
 			}
 		}
+	}
+
+	/**
+	 * Get the text associated to an info xml node, possibly using an href parameter
+	 * @param string $filename The filename of the xml file
+	 * @param \SimpleXMLElement $node The text node with value children to sift through
+	 * @return mixed|string The result text
+	 */
+	public static function get_xml_text($filename, \SimpleXMLElement $node)
+	{
+		$values = $node->xpath('value[not(@lang)]');
+		$value = reset($values);
+		$filename = (string) $filename;
+
+		if($value['href']) {
+			$href = dirname($filename). '/' . str_replace('..', '', $value['href']);
+			if(file_exists($href)) {
+				$initial = file_get_contents($href);
+				$result = Plugins::filter('get_xml_text', $initial, $filename );
+				if($initial == $result) {
+					$result = Format::autop($initial);
+				}
+				return $result;
+			}
+		}
+		return (string)$value;
 	}
 }
 

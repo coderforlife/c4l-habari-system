@@ -1,5 +1,7 @@
 <?php
 
+namespace Habari;
+
 class Monolith extends Theme
 {
 	/**
@@ -19,8 +21,10 @@ class Monolith extends Theme
 		Stack::add( 'admin_header_javascript', 'media' );
 		Stack::add( 'admin_header_javascript', 'admin-js' );
 		Stack::add( 'admin_header_javascript', 'crc32' );
+		Stack::add( 'admin_header_javascript', 'select2' );
 
 		Stack::add( 'admin_stylesheet', 'jquery.ui-css' );
+		Stack::add( 'admin_stylesheet', 'select2-css' );
 
 		if ( defined( 'DEBUG_ADMIN' ) ) {
 			Stack::add( 'admin_footer_javascript', 'less' );
@@ -60,7 +64,9 @@ class Monolith extends Theme
 		if(!isset($available_modules)) {
 			$available_modules = Plugins::filter('dashboard_block_list', array());
 		}
-		$block->_title = $available_modules[$block->type];
+		if( isset( $available_modules[$block->type] ) ) {
+			$block->_title = $available_modules[$block->type];
+		}
 	}
 }
 ?>

@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari AdminCommentsHandler Class
  * Handles comment-related actions in the admin
@@ -22,68 +24,47 @@ class AdminCommentsHandler extends AdminHandler
 		$user = User::identify();
 
 		// Create the top description
-		$top = $form->append( 'wrapper', 'buttons_1' );
-		$top->class = 'container buttons comment overview';
-
-		$top->append( 'static', 'overview', $this->theme->fetch( 'comment.overview' ) );
-
-		$buttons_1 = $top->append( 'wrapper', 'buttons_1' );
-		$buttons_1->class = 'item buttons';
-
+		$top = $form->append( FormControlWrapper::create( 'buttons_1', null, array( 'class' => array( 'container', 'buttons', 'comment', 'overview' ) ) ) );
+		$top->append( FormControlStatic::create( 'overview', null )->set_static( $this->theme->fetch( 'comment.overview' ) ) );
+		$buttons_1 = $top->append( FormControlWrapper::create( 'buttons_1', null, array( 'class' => array( 'item', 'buttons' ) ) ) );
 
 		foreach ( $actions as $status => $action ) {
 			$id = $action . '_1';
-			$buttons_1->append( 'submit', $id, _t( ucfirst( $action ) ) );
-			$buttons_1->$id->class = 'button ' . $action;
+			$buttons_1->append( FormControlSubmit::create( $id , null, array( 'class' => array('status', 'button', $action ) ) )->set_caption( MUltiByte::ucfirst( _t( $action ) ) ) );
 			if ( Comment::status_name( $comment->status ) == $status ) {
-				$buttons_1->$id->class = 'button active ' . $action;
-				$buttons_1->$id->disabled = true;
+				$buttons_1->$id->add_class( 'active' );
+				$buttons_1->$id->set_properties( array( 'disabled' => true ) );
 			}
 			else {
-				$buttons_1->$id->disabled = false;
+				$buttons_1->$id->set_properties( array( 'disabled' => false ) );
 			}
 		}
 
 		// Content
-		$form->append( 'wrapper', 'content_wrapper' );
-		$content = $form->content_wrapper->append( 'textarea', 'content', 'null:null', _t( 'Comment' ), 'admincontrol_textarea' );
-		$content->class = 'resizable';
-		$content->value = $comment->content;
+		$form->append( FormControlWrapper::create( 'content_wrapper' ) );
+		$form->content_wrapper->append( FormControlLabel::wrap( _t( 'Comment' ), FormControlTextArea::create( 'content', null, array( 'class' => 'resizable' ) )->set_value( $comment->content ) ) );
 
 		// Create the splitter
-		$comment_controls = $form->append( 'tabs', 'comment_controls' );
+		$comment_controls = $form->append( FormControlTabs::create( 'comment_controls' ) );
 
 		// Create the author info
-		$author = $comment_controls->append( 'fieldset', 'authorinfo', _t( 'Author' ) );
+		$author = $comment_controls->append( FormControlFieldset::create( 'authorinfo' )->set_caption( _t( 'Author' ) ) );
 
-		$author->append( 'text', 'author_name', 'null:null', _t( 'Author Name' ), 'tabcontrol_text' );
-		$author->author_name->value = $comment->name;
-
-		$author->append( 'text', 'author_email', 'null:null', _t( 'Author Email' ), 'tabcontrol_text' );
-		$author->author_email->value = $comment->email;
-
-		$author->append( 'text', 'author_url', 'null:null', _t( 'Author URL' ), 'tabcontrol_text' );
-		$author->author_url->value = $comment->url;
-
-		$author->append( 'text', 'author_ip', 'null:null', _t( 'IP Address:' ), 'tabcontrol_text' );
-		$author->author_ip->value = $comment->ip;
+		$author->append( FormControlLabel::wrap( _t( 'Author Name' ), FormControlText::create( 'author_name' )->set_value( $comment->name ) ) );
+		$author->append( FormControlLabel::wrap( _t( 'Author Email' ), FormControlText::create( 'author_email' )->set_value( $comment->email ) ) );
+		$author->append( FormControlLabel::wrap( _t( 'Author URL' ), FormControlText::create( 'author_url' )->set_value( $comment->url ) ) );
+		$author->append( FormControlLabel::wrap( _t( 'IP Address:' ), FormControlText::create( 'author_ip' )->set_value( $comment->ip ) ) );
 
 
 		// Create the advanced settings
-		$settings = $comment_controls->append( 'fieldset', 'settings', _t( 'Settings' ) );
+		$settings = $comment_controls->append( FormControlFieldset::create( 'settings' )->set_caption( _t( 'Settings' ) ) );
 
-		$settings->append( 'text', 'comment_date', 'null:null', _t( 'Date:' ), 'tabcontrol_text' );
-		$settings->comment_date->value = $comment->date->get( 'Y-m-d H:i:s' );
-
-
-
-		$settings->append( 'text', 'comment_post', 'null:null', _t( 'Post ID:' ), 'tabcontrol_text' );
-		$settings->comment_post->value = $comment->post->id;
+		$settings->append( FormControlLabel::wrap( _t( 'Date:' ), FormControlText::create( 'comment_date' )->set_value( $comment->date->get( 'Y-m-d H:i:s' ) ) ) );
+		$settings->append( FormControlLabel::wrap( _t( 'Post ID:' ), FormControlText::create( 'comment_post' )->set_value( $comment->post->id ) ) );
 
 		$statuses = Comment::list_comment_statuses( false );
 		$statuses = Plugins::filter( 'admin_publish_list_comment_statuses', $statuses );
-		$settings->append( 'select', 'comment_status', 'null:null', _t( 'Status' ), $statuses, 'tabcontrol_select' );
-		$settings->comment_status->value = $comment->status;
+		$settings->append( FormControlLabel::wrap( _t( 'Status' ), FormControlSelect::create( 'comment_status' )->set_options( $statuses)->set_value( $comment->status ) ) );
 
 		// // Create the stats
 		// $comment_controls->append('fieldset', 'stats_tab', _t('Stats'));
@@ -96,19 +77,17 @@ class AdminCommentsHandler extends AdminHandler
 		// $stats->append('static', 'url_count', '<div class="container"><p class="pct25">'._t('Comments with this URL:').'</p><p><strong>' . Comments::count_by_url($comment->url) . '</strong></p></div><hr />');
 
 		// Create the second set of action buttons
-		$buttons_2 = $form->append( 'wrapper', 'buttons_2' );
-		$buttons_2->class = 'container buttons comment';
+		$buttons_2 = $form->append( FormControlWrapper::create( 'buttons_2', null, array( 'class'=> array( 'container', 'buttons', 'comment' ) ) ) );
 
 		foreach ( $actions as $status => $action ) {
 			$id = $action . '_2';
-			$buttons_2->append( 'submit', $id, _t( ucfirst( $action ) ) );
-			$buttons_2->$id->class = 'button ' . $action;
+			$buttons_2->append( FormControlSubmit::create( $id , null, array( 'class' => array('status', 'button', $action ) ) )->set_caption( MUltiByte::ucfirst( _t( $action ) ) ) );
 			if ( Comment::status_name( $comment->status ) == $status ) {
-				$buttons_2->$id->class = 'button active ' . $action;
-				$buttons_2->$id->disabled = true;
+				$buttons_2->$id->add_class( 'active' );
+				$buttons_2->$id->set_properties( array( 'disabled' => true ) );
 			}
 			else {
-				$buttons_2->$id->disabled = false;
+				$buttons_2->$id->set_properties( array( 'disabled' => false ) );
 			}
 		}
 
@@ -138,13 +117,16 @@ class AdminCommentsHandler extends AdminHandler
 			$form = $this->form_comment( $comment, $actions );
 
 			if ( $update ) {
+				// Get the $_POSTed values
+				$form->process();
+
 				foreach ( $actions as $key => $action ) {
 					$id_one = $action . '_1';
 					$id_two = $action . '_2';
 					if ( $form->$id_one->value != null || $form->$id_two->value != null ) {
 						if ( $action == 'delete' ) {
 							$comment->delete();
-							Utils::redirect( URL::get( 'admin', 'page=comments' ) );
+							Utils::redirect( URL::get( 'display_comments' ) );
 						}
 						if ( $action != 'save' ) {
 							foreach ( Comment::list_comment_statuses() as $status ) {
@@ -157,14 +139,14 @@ class AdminCommentsHandler extends AdminHandler
 					}
 				}
 
-				$comment->content = $form->content;
-				$comment->name = $form->author_name;
-				$comment->url = $form->author_url;
-				$comment->email = $form->author_email;
-				$comment->ip = $form->author_ip;
+				$comment->content = $form->content->value;
+				$comment->name = $form->author_name->value;
+				$comment->url = $form->author_url->value;
+				$comment->email = $form->author_email->value;
+				$comment->ip = $form->author_ip->value;
 
-				$comment->date = HabariDateTime::date_create( $form->comment_date );
-				$comment->post_id = $form->comment_post;
+				$comment->date = DateTime::create( $form->comment_date->value );
+				$comment->post_id = $form->comment_post->value;
 
 				if ( ! isset( $set_status ) ) {
 					$comment->status = $form->comment_status->value;
@@ -183,7 +165,7 @@ class AdminCommentsHandler extends AdminHandler
 			$this->display( 'comment' );
 		}
 		else {
-			Utils::redirect( URL::get( 'admin', 'page=comments' ) );
+			Utils::redirect( URL::get( 'display_comments' ) );
 		}
 	}
 
@@ -269,18 +251,18 @@ class AdminCommentsHandler extends AdminHandler
 		}
 
 		// Setting these mass_delete options prevents any other processing.  Desired?
-		if ( isset( $mass_spam_delete ) && $status == Comment::STATUS_SPAM ) {
+		if ( isset( $mass_spam_delete ) && $status == 'spam' ) {
 			// Delete all comments that have the spam status.
-			Comments::delete_by_status( Comment::STATUS_SPAM );
+			Comments::delete_by_status( 'spam' );
 			// let's optimize the table
 			$result = DB::query( 'OPTIMIZE TABLE {comments}' );
 			Session::notice( _t( 'Deleted all spam comments' ) );
 			EventLog::log( _t( 'Deleted all spam comments' ), 'info' );
 			Utils::redirect();
 		}
-		elseif ( isset( $mass_delete ) && $status == Comment::STATUS_UNAPPROVED ) {
+		elseif ( isset( $mass_delete ) && $status == 'unapproved' ) {
 			// Delete all comments that are unapproved.
-			Comments::delete_by_status( Comment::STATUS_UNAPPROVED );
+			Comments::delete_by_status( 'unapproved' );
 			Session::notice( _t( 'Deleted all unapproved comments' ) );
 			EventLog::log( _t( 'Deleted all unapproved comments' ), 'info' );
 			Utils::redirect();
@@ -336,7 +318,7 @@ class AdminCommentsHandler extends AdminHandler
 					case 'spam':
 						// This comment was marked as spam
 						$to_update = $this->comment_access_filter( $to_update, 'edit' );
-						Comments::moderate_these( $to_update, Comment::STATUS_SPAM );
+						Comments::moderate_these( $to_update, 'spam' );
 						$modstatus[_t( 'Marked %d comments as spam' )] = count( $to_update );
 						break;
 
@@ -344,7 +326,7 @@ class AdminCommentsHandler extends AdminHandler
 					case 'approved':
 						// Comments marked for approval
 						$to_update = $this->comment_access_filter( $to_update, 'edit' );
-						Comments::moderate_these( $to_update, Comment::STATUS_APPROVED );
+						Comments::moderate_these( $to_update, 'approved' );
 						$modstatus[_t( 'Approved %d comments' )] = count( $to_update );
 						foreach ( $to_update as $comment ) {
 									$modstatus[_t( 'Approved comments on these posts: %s' )] = ( isset( $modstatus[_t( 'Approved comments on these posts: %s' )] )? $modstatus[_t( 'Approved comments on these posts: %s' )] . ' &middot; ' : '' ) . '<a href="' . $comment->post->permalink . '">' . $comment->post->title . '</a> ';
@@ -355,7 +337,7 @@ class AdminCommentsHandler extends AdminHandler
 					case 'unapproved':
 						// This comment was marked for unapproval
 						$to_update = $this->comment_access_filter( $to_update, 'edit' );
-						Comments::moderate_these( $to_update, Comment::STATUS_UNAPPROVED );
+						Comments::moderate_these( $to_update, 'unapproved' );
 						$modstatus[_t( 'Unapproved %d comments' )] = count( $to_update );
 						break;
 
@@ -455,7 +437,7 @@ class AdminCommentsHandler extends AdminHandler
 
 		/* Standard actions */
 		$baseactions['delete'] = array( 'url' => 'javascript:itemManage.update(\'delete\',__commentid__);', 'title' => _t( 'Delete this comment' ), 'label' => _t( 'Delete' ), 'access' => 'delete' );
-		$baseactions['edit'] = array( 'url' => URL::get( 'admin', 'page=comment&id=__commentid__' ), 'title' => _t( 'Edit this comment' ), 'label' => _t( 'Edit' ), 'access' => 'edit' );
+		$baseactions['edit'] = array( 'url' => URL::get( 'edit_comment', 'id=__commentid__' ), 'title' => _t( 'Edit this comment' ), 'label' => _t( 'Edit' ), 'access' => 'edit' );
 
 		/* Allow plugins to apply actions */
 		$actions = Plugins::filter( 'comments_actions', $baseactions, $this->theme->comments );
@@ -531,12 +513,13 @@ class AdminCommentsHandler extends AdminHandler
 	{
 
 		Utils::check_request_method( array( 'POST' ) );
+		$ar = new AjaxResponse();
 
 		// check WSSE authentication
 		$wsse = Utils::WSSE( $handler_vars['nonce'], $handler_vars['timestamp'] );
 		if ( $handler_vars['digest'] != $wsse['digest'] ) {
-			Session::error( _t( 'WSSE authentication failed.' ) );
-			echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
+			$ar->message = _t( 'WSSE authentication failed.' );
+			$ar->out();
 			return;
 		}
 
@@ -550,8 +533,8 @@ class AdminCommentsHandler extends AdminHandler
 		}
 
 		if ( ( ! isset( $ids ) || empty( $ids ) ) && $handler_vars['action'] == 'delete' ) {
-			Session::notice( _t( 'No comments selected.' ) );
-			echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
+			$ar->message = _t( 'No comments selected.' );
+			$ar->out();
 			return;
 		}
 
@@ -561,11 +544,11 @@ class AdminCommentsHandler extends AdminHandler
 
 		switch ( $handler_vars['action'] ) {
 			case 'delete_spam':
-				Comments::delete_by_status( Comment::STATUS_SPAM );
+				Comments::delete_by_status( 'spam' );
 				$status_msg = _t( 'Deleted all spam comments' );
 				break;
 			case 'delete_unapproved':
-				Comments::delete_by_status( Comment::STATUS_UNAPPROVED );
+				Comments::delete_by_status( 'unapproved' );
 				$status_msg = _t( 'Deleted all unapproved comments' );
 				break;
 			case 'delete':
@@ -575,19 +558,19 @@ class AdminCommentsHandler extends AdminHandler
 				break;
 			case 'spam':
 				// Comments marked as spam
-				Comments::moderate_these( $comments, Comment::STATUS_SPAM );
+				Comments::moderate_these( $comments, 'spam' );
 				$status_msg = sprintf( _n( 'Marked %d comment as spam', 'Marked %d comments as spam', count( $ids ) ), count( $ids ) );
 				break;
 			case 'approve':
 			case 'approved':
 				// Comments marked for approval
-				Comments::moderate_these( $comments, Comment::STATUS_APPROVED );
+				Comments::moderate_these( $comments, 'approved' );
 				$status_msg = sprintf( _n( 'Approved %d comment', 'Approved %d comments', count( $ids ) ), count( $ids ) );
 				break;
 			case 'unapprove':
 			case 'unapproved':
 				// Comments marked for unapproval
-				Comments::moderate_these( $comments, Comment::STATUS_UNAPPROVED );
+				Comments::moderate_these( $comments, 'unapproved' );
 				$status_msg = sprintf( _n( 'Unapproved %d comment', 'Unapproved %d comments', count( $ids ) ), count( $ids ) );
 				break;
 			default:
@@ -596,8 +579,8 @@ class AdminCommentsHandler extends AdminHandler
 				break;
 		}
 
-		Session::notice( $status_msg );
-		echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
+		$ar->message = $status_msg;
+		$ar->out();
 	}
 
 }

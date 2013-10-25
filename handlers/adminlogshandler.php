@@ -4,6 +4,8 @@
  *
  */
 
+namespace Habari;
+
 /**
  * Habari AdminLogsHandler Class
  * Handles log-related actions in the admin
@@ -56,7 +58,7 @@ class AdminLogsHandler extends AdminHandler
 		$date = Controller::get_var( 'date', 'any' );
 
 		if ( $date != 'any' ) {
-			$d = HabariDateTime::date_create( $date );	// ! means fill any non-specified pieces with default Unix Epoch ones
+			$d = DateTime::create( $date );	// ! means fill any non-specified pieces with default Unix Epoch ones
 			$arguments['year'] = $d->format( 'Y' );
 			$arguments['month'] = $d->format( 'm' );
 		}
@@ -135,19 +137,52 @@ class AdminLogsHandler extends AdminHandler
 
 		$this->theme->years = $years;
 
+		$form = new FormUI('logs_batch', 'logs_batch');
+		$form->append(FormControlAggregate::create('entries')->set_selector('.log_entry')->set_value(array())->label('None Selected'));
+		$form->append($actions = FormControlDropbutton::create('actions'));
+		$actions->append(FormControlSubmit::create('delete_selected')->on_success(
+			function(FormUI $form){
+				$ids = $form->entries->value;
+				$count = 0;
+				/** @var LogEntry $log */
+				foreach ( $ids as $id ) {
+					$logs = EventLog::get( array( 'id' => $id ) );
+					foreach($logs as $log) {
+						$log->delete();
+						$count++;
+					}
+				}
+				Session::notice( _t( 'Deleted %d logs.', array( $count ) ) );
+				$form->bounce(false);
+			}
+		)->set_caption(_t('Delete Selected')));
+		$actions->append(FormControlSubmit::create('purge_logs')->on_success(
+			function(FormUI $form){
+				if(EventLog::purge()) {
+					Session::notice( _t( 'Logs purged.' ) );
+				}
+				else {
+					Session::notice( _t( 'There was a problem purging the event logs.' ) );
+				}
+				$form->bounce(false);
+			}
+		)->set_caption(_t('Purge Logs')));
+
+		$this->theme->form = $form;
+
 		$this->theme->wsse = Utils::WSSE(); // prepare a WSSE token for any ajax calls
 
 	}
 
 	private function fetch_log_dates()
 	{
-		$db_dates = DB::get_column( 'SELECT timestamp FROM {log} ORDER BY timestamp DESC' );
+		$db_dates = DB::get_results( 'SELECT MONTH(FROM_UNIXTIME(timestamp)) AS month, YEAR(FROM_UNIXTIME(timestamp)) AS year FROM {log} ORDER BY timestamp DESC' );
 		$dates = array(
 			'any' => _t( 'Any' )
 		);
 
 		foreach ( $db_dates as $db_date ) {
-			$date = HabariDateTime::date_create( $db_date )->format( 'Y-m' );
+			$date = sprintf('%04d-%02d', $db_date->year, $db_date->month);
 			$dates[ $date ] = $date;
 		}
 		return $dates;
@@ -221,54 +256,6 @@ class AdminLogsHandler extends AdminHandler
 			'timeline' => $timeline,
 		);
 		$ar->out();
-	}
-
-	/**
-	 * Handles AJAX from /logs.
-	 * Used to delete logs.
-	 */
-	public function ajax_delete_logs( $handler_vars )
-	{
-		Utils::check_request_method( array( 'POST' ) );
-
-		$count = 0;
-
-		$wsse = Utils::WSSE( $handler_vars['nonce'], $handler_vars['timestamp'] );
-		if ( $handler_vars['digest'] != $wsse['digest'] ) {
-			Session::error( _t( 'WSSE authentication failed.' ) );
-			echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
-			return;
-		}
-		foreach ( $_POST as $id => $delete ) {
-			// skip POST elements which are not log ids
-			if ( preg_match( '/^p\d+$/', $id ) && $delete ) {
-				$id = (int) substr( $id, 1 );
-				$ids[] = array( 'id' => $id );
-			}
-		}
-
-		if ( ( ! isset( $ids ) || empty( $ids ) ) && $handler_vars['action'] != 'purge' ) {
-			Session::notice( _t( 'No logs selected.' ) );
-			echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
-			return;
-		}
-
-		switch ( $handler_vars['action'] ) {
-			case 'delete':
-				$to_delete = EventLog::get( array( 'date' => 'any', 'where' => $ids, 'nolimit' => 1 ) );
-				foreach ( $to_delete as $log ) {
-					$log->delete();
-					$count++;
-				}
-				Session::notice( _t( 'Deleted %d logs.', array( $count ) ) );
-				break;
-			case 'purge':
-				$result = EventLog::purge();
-				Session::notice( _t( 'Logs purged.' ) );
-				break;
-		}
-
-		echo Session::messages_get( true, array( 'Format', 'json_messages' ) );
 	}
 
 }
