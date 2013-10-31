@@ -4,9 +4,6 @@
 [submodule "plugins/coreblocks"]
 	path = plugins/coreblocks
 	url = https://github.com/habari/coreblocks
-[submodule "plugins/coredashblocks"]
-	path = plugins/coredashblocks
-	url = https://github.com/habari/coredashblocks
 [submodule "plugins/flickrsilo"]
 	path = plugins/flickrsilo
 	url = https://github.com/habari/flickrsilo
